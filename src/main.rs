@@ -3,10 +3,10 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
-mod buf;
-mod buf_winit;
-use buf::Buffer;
-use buf_winit::WinitBuf;
+mod fb;
+mod fb_winit;
+use fb::Framebuffer;
+use fb_winit::WinitFB;
 
 fn main() {
     let event_loop = EventLoop::new();
@@ -17,7 +17,7 @@ fn main() {
         .expect("Failed to initialize window");
 
     let start_size = window.inner_size();
-    let mut gc = WinitBuf::new(start_size.width as u16, start_size.height as u16, &window)
+    let mut fb = WinitFB::new(start_size.width as u16, start_size.height as u16, &window)
         .expect("Failed to initialize framebuffer");
 
     let bg_color = 255 | 0 << 8 | 0 << 16;
@@ -32,7 +32,7 @@ fn main() {
             } => match window_event {
                 WindowEvent::CloseRequested => cf.set_exit(),
                 WindowEvent::Resized(inner_size) => {
-                    gc.resize(inner_size.width as u16, inner_size.height as u16)
+                    fb.resize(inner_size.width as u16, inner_size.height as u16)
                 }
                 _ => (),
             },
@@ -40,12 +40,12 @@ fn main() {
             Event::MainEventsCleared => {
                 // TODO: Move this into renderer struct render()
                 // Blank the screen
-                gc.fill(bg_color);
+                fb.fill(bg_color);
 
                 // TODO: Rendering
 
                 // Flush to screen
-                gc.flush();
+                fb.flush();
             }
             _ => (),
         }

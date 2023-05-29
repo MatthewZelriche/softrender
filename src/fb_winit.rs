@@ -2,21 +2,21 @@ use softbuffer::GraphicsContext;
 
 use winit::window::Window;
 
-use crate::buf::Buffer;
+use crate::fb::Framebuffer;
 use std::vec::Vec;
 
-pub struct WinitBuf {
+pub struct WinitFB {
     width: u16,
     height: u16,
     gc: GraphicsContext,
     buf: Vec<u32>,
 }
 
-impl WinitBuf {
+impl WinitFB {
     pub fn new(width: u16, height: u16, handle: &Window) -> Result<Self, String> {
         let gc_res = unsafe { GraphicsContext::new(&handle, &handle) };
         match gc_res {
-            Ok(gc) => Ok(WinitBuf {
+            Ok(gc) => Ok(WinitFB {
                 width,
                 height,
                 gc,
@@ -30,7 +30,7 @@ impl WinitBuf {
     }
 }
 
-impl Buffer for WinitBuf {
+impl Framebuffer for WinitFB {
     fn fill(&mut self, color: u32) {
         for pixel in &mut self.buf {
             *pixel = color;
