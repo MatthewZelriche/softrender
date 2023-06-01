@@ -23,8 +23,6 @@ fn main() {
 
     let mut renderer = Renderer::new(fb);
 
-    renderer.set_bg_color(55 | 55 << 8 | 55 << 16);
-
     event_loop.run(move |event, _, cf| {
         cf.set_poll();
 
@@ -41,7 +39,8 @@ fn main() {
             },
 
             Event::MainEventsCleared => {
-                renderer.draw_frame();
+                renderer.clear_color(55 | 55 << 8 | 55 << 16);
+                renderer.draw();
             }
             _ => (),
         }
