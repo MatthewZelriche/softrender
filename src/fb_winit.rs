@@ -37,7 +37,14 @@ impl Framebuffer for WinitFB {
         }
     }
 
-    fn plot_pixel(&mut self, x: u16, y: u16, color: u32) {
+    fn get_width(&self) -> u16 {
+        self.width
+    }
+
+    fn get_height(&self) -> u16 {
+        self.height
+    }
+
         let idx = y as usize * self.width as usize + x as usize;
         self.buf[idx] = color;
     }
