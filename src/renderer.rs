@@ -1,14 +1,21 @@
 use crate::fb::Framebuffer;
+use std::option::Option;
 
 use glam::{IVec2, Vec2Swizzles};
 
-pub struct Renderer<T: Framebuffer> {
+pub struct Renderer<'a, T: Framebuffer> {
     fb: T,
+    vertex_buf: Option<&'a [f32]>,
+    index_buf: Option<&'a [u32]>,
 }
 
-impl<T: Framebuffer> Renderer<T> {
+impl<'a, T: Framebuffer> Renderer<'a, T> {
     pub fn new(default_fb: T) -> Self {
-        Renderer { fb: default_fb }
+        Renderer {
+            fb: default_fb,
+            vertex_buf: None,
+            index_buf: None,
+        }
     }
 
     pub fn set_fb_size(&mut self, width: u16, height: u16) {
@@ -17,6 +24,16 @@ impl<T: Framebuffer> Renderer<T> {
 
     pub fn clear_color(&mut self, new_color: u32) {
         self.fb.fill(new_color);
+    }
+
+    pub fn bind_vertex_data(&mut self, vertex_buf_in: &'a [f32], index_buf_in: &'a [u32]) {
+        self.vertex_buf = Some(vertex_buf_in);
+        self.index_buf = Some(index_buf_in);
+    }
+
+    pub fn unbind_vertex_data(&mut self) {
+        self.vertex_buf = None;
+        self.index_buf = None;
     }
 
     pub fn draw(&mut self) {
