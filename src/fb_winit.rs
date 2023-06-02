@@ -45,6 +45,10 @@ impl Framebuffer for WinitFB {
         self.height
     }
 
+    fn plot_pixel(&mut self, x: u16, mut y: u16, color: u32) {
+        // Calculate the inverse of the y coordinate, because softbuffer has topleft as origin,
+        // but we need bottom left.
+        y = (self.width - 1) - y;
         let idx = y as usize * self.width as usize + x as usize;
         self.buf[idx] = color;
     }
