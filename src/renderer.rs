@@ -105,11 +105,9 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
             triangle_hom[2] = (triangle_hom[2].xyz() / triangle_hom[2].w).extend(triangle_hom[2].w);
 
             // Finally, convert from ndc to screenspace
-            let triangle_screen = [
-                self.screenspace_matrix * triangle_hom[0],
-                self.screenspace_matrix * triangle_hom[1],
-                self.screenspace_matrix * triangle_hom[2],
-            ];
+            let screen_p0 = (self.screenspace_matrix * triangle_hom[0]).xy().as_ivec2();
+            let screen_p1 = (self.screenspace_matrix * triangle_hom[1]).xy().as_ivec2();
+            let screen_p2 = (self.screenspace_matrix * triangle_hom[2]).xy().as_ivec2();
 
             // TODO: Depth buffer
 
@@ -118,17 +116,9 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
             match self.draw_mode {
                 DrawMode::REGULAR => todo!(),
                 DrawMode::WIREFRAME => {
-                    // Three lines per triangle
-                    for j in 0..3 {
-                        let ssp1 =
-                            IVec2::new(triangle_screen[j].x as i32, triangle_screen[j].y as i32);
-                        let ssp2 = IVec2::new(
-                            triangle_screen[(j + 1) % 3].x as i32, // mod so we wrap back to the zero element
-                            triangle_screen[(j + 1) % 3].y as i32,
-                        );
-                        // Plot to color buffer
-                        self.plot_line(ssp1, ssp2, shader);
-                    }
+                    self.plot_line(screen_p0, screen_p1, shader);
+                    self.plot_line(screen_p1, screen_p2, shader);
+                    self.plot_line(screen_p2, screen_p0, shader);
                 }
             }
         }
