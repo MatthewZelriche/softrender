@@ -1,4 +1,4 @@
-use crate::fb::Framebuffer;
+use crate::{fb::Framebuffer, shader::Shader};
 use std::option::Option;
 
 use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4Swizzles};
@@ -27,6 +27,7 @@ pub struct Renderer<'a, T: Framebuffer> {
     screenspace_matrix: Mat4,
 }
 
+// TODO: Determine how stateful this renderer should be. Store state, or pass as args to draw call?
 impl<'a, T: Framebuffer> Renderer<'a, T> {
     pub fn new(default_fb: T) -> Self {
         let a = calculate_screenspace_matrix(
@@ -65,7 +66,7 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         self.index_buf = None;
     }
 
-    pub fn draw(&mut self) -> bool {
+    pub fn draw<S: Shader>(&mut self, shader: &S) -> bool {
         // Rough draft of the pipeline. Will likely change.
         // TODO: Multithreading
         if self.vertex_buf == None || self.index_buf == None {
@@ -88,13 +89,11 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
 
             // Apply the vertex shader to each vertex in the primitive
             // TODO: Consider some way to not process a single vertex multiple times due to using indices?
-            // TODO: Actually use a "Shader" object here for programmable shaders. It will take in a Vec3 and
-            // output a Vec4 (homogenous with w component)
             // Right now, all the "vertex shader" does is is extend the vertex to a Vec4.
             let mut triangle_hom = [
-                triangle_pos[0].extend(1.0),
-                triangle_pos[1].extend(1.0),
-                triangle_pos[2].extend(1.0),
+                shader.vertex(triangle_pos[0]),
+                shader.vertex(triangle_pos[1]),
+                shader.vertex(triangle_pos[2]),
             ];
 
             // After the vertex shader is run, our vertices now exist in clip space.
@@ -114,7 +113,8 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
 
             // TODO: Depth buffer
 
-            // TODO: Fragment shader
+            // TODO: Interpolate vertex shader outputs for fragment shader inputs
+
             match self.draw_mode {
                 DrawMode::REGULAR => todo!(),
                 DrawMode::WIREFRAME => {
@@ -127,7 +127,7 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
                             triangle_screen[(j + 1) % 3].y as i32,
                         );
                         // Plot to color buffer
-                        self.plot_line(ssp1, ssp2, 0);
+                        self.plot_line(ssp1, ssp2, shader);
                     }
                 }
             }
@@ -138,10 +138,12 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         true
     }
 
-    fn plot_line(&mut self, mut p1: IVec2, mut p2: IVec2, color: u32) {
+    fn plot_line<S: Shader>(&mut self, mut p1: IVec2, mut p2: IVec2, program: &S) {
         // Special case for a "line" thats a single point
         if p1 == p2 {
-            self.fb.plot_pixel(p1.x as u16, p1.y as u16, color);
+            let frag_output = program.fragment();
+            let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
+            self.fb.plot_pixel(p1.x as u16, p1.y as u16, fb_color);
             return;
         }
 
@@ -173,12 +175,14 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         let sign = if dy >= 0 { 1 } else { -1 };
 
         for x in p1.x..p2.x {
+            let frag_output = program.fragment();
+            let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
             if y_long {
                 // Swap back to screen-space
-                self.fb.plot_pixel(y as u16, x as u16, color);
+                self.fb.plot_pixel(y as u16, x as u16, fb_color);
             } else {
                 // x and y are already in screen-space
-                self.fb.plot_pixel(x as u16, y as u16, color);
+                self.fb.plot_pixel(x as u16, y as u16, fb_color);
             }
 
             if eps >= 0 {

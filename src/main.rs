@@ -7,8 +7,22 @@ use winit::window::WindowBuilder;
 mod fb;
 mod fb_winit;
 mod renderer;
+mod shader;
 use fb_winit::WinitFB;
 use renderer::{DrawMode, Renderer};
+use shader::Shader;
+
+struct MyShader;
+
+impl Shader for MyShader {
+    fn vertex(&self, pos: glam::Vec3) -> glam::Vec4 {
+        pos.extend(1.0)
+    }
+
+    fn fragment(&self) -> glam::UVec3 {
+        glam::UVec3::new(0, 0, 0)
+    }
+}
 
 fn main() {
     let mut event_loop = EventLoop::new();
@@ -29,6 +43,8 @@ fn main() {
     renderer.set_draw_mode(DrawMode::WIREFRAME);
     renderer.bind_vertex_data(&models[0].mesh.positions, &models[0].mesh.indices);
 
+    let shader = MyShader {};
+
     event_loop.run_return(|event, _, cf| {
         cf.set_poll();
 
@@ -46,7 +62,7 @@ fn main() {
 
             Event::MainEventsCleared => {
                 renderer.clear_color(95 | 95 << 8 | 95 << 16);
-                renderer.draw();
+                renderer.draw(&shader);
             }
             _ => (),
         }
