@@ -1,29 +1,58 @@
 use crate::fb::Framebuffer;
 use std::option::Option;
 
-use glam::{IVec2, Vec2Swizzles};
+use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4Swizzles};
+
+pub enum DrawMode {
+    REGULAR,
+    WIREFRAME,
+}
+
+fn calculate_screenspace_matrix(width: f32, height: f32) -> Mat4 {
+    let max_cols = width - 1.0;
+    let max_rows = height - 1.0;
+    Mat4::from_cols(
+        vec4(max_cols / 2.0, 0.0, 0.0, 0.0),
+        vec4(0.0, max_rows / 2.0, 0.0, 0.0),
+        vec4(0.0, 0.0, 1.0, 0.0),
+        vec4(max_cols / 2.0, max_rows / 2.0, 0.0, 1.0),
+    )
+}
 
 pub struct Renderer<'a, T: Framebuffer> {
     fb: T,
     vertex_buf: Option<&'a [f32]>,
     index_buf: Option<&'a [u32]>,
+    draw_mode: DrawMode,
+    screenspace_matrix: Mat4,
 }
 
 impl<'a, T: Framebuffer> Renderer<'a, T> {
     pub fn new(default_fb: T) -> Self {
+        let a = calculate_screenspace_matrix(
+            default_fb.get_width() as f32,
+            default_fb.get_height() as f32,
+        );
         Renderer {
             fb: default_fb,
             vertex_buf: None,
             index_buf: None,
+            draw_mode: DrawMode::REGULAR,
+            screenspace_matrix: a,
         }
     }
 
     pub fn set_fb_size(&mut self, width: u16, height: u16) {
         self.fb.resize(width, height);
+        self.screenspace_matrix = calculate_screenspace_matrix(width as f32, height as f32);
     }
 
     pub fn clear_color(&mut self, new_color: u32) {
         self.fb.fill(new_color);
+    }
+
+    pub fn set_draw_mode(&mut self, new_mode: DrawMode) {
+        self.draw_mode = new_mode;
     }
 
     pub fn bind_vertex_data(&mut self, vertex_buf_in: &'a [f32], index_buf_in: &'a [u32]) {
@@ -36,20 +65,77 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         self.index_buf = None;
     }
 
-    pub fn draw(&mut self) {
-        // TODO: pipeline invocation
+    pub fn draw(&mut self) -> bool {
+        // Rough draft of the pipeline. Will likely change.
+        // TODO: Multithreading
+        if self.vertex_buf == None || self.index_buf == None {
+            return false;
+        }
 
-        self.plot_line(IVec2 { x: 0, y: 100 }, IVec2 { x: 799, y: 100 }, 0);
-        self.plot_line(IVec2 { x: 100, y: 0 }, IVec2 { x: 100, y: 799 }, 0);
-        self.plot_line(IVec2 { x: 0, y: 0 }, IVec2 { x: 799, y: 799 }, 0);
-        self.plot_line(IVec2 { x: 0, y: 799 }, IVec2 { x: 799, y: 0 }, 0);
-        self.plot_line(IVec2 { x: 400, y: 0 }, IVec2 { x: 450, y: 800 }, 0);
-        self.plot_line(IVec2 { x: 400, y: 800 }, IVec2 { x: 450, y: 0 }, 0);
-        self.plot_line(IVec2 { x: 0, y: 400 }, IVec2 { x: 800, y: 450 }, 0);
-        self.plot_line(IVec2 { x: 800, y: 400 }, IVec2 { x: 0, y: 450 }, 0);
+        // Each triangle will always have 3 indices/vertices
+        for i in (0..self.index_buf.unwrap().len()).step_by(3) {
+            let v0_idx = self.index_buf.unwrap()[i] as usize;
+            let v1_idx = self.index_buf.unwrap()[i + 1] as usize;
+            let v2_idx = self.index_buf.unwrap()[i + 2] as usize;
+
+            // TODO: Right now we assume vertex stride is 3 floats, but that will change.
+            let stride = 3;
+            let triangle_pos = [
+                Vec3::from_slice(self.vertex_buf.unwrap().get(v0_idx * stride..).unwrap()),
+                Vec3::from_slice(self.vertex_buf.unwrap().get(v1_idx * stride..).unwrap()),
+                Vec3::from_slice(self.vertex_buf.unwrap().get(v2_idx * stride..).unwrap()),
+            ];
+
+            // Apply the vertex shader to each vertex in the primitive
+            // TODO: Consider some way to not process a single vertex multiple times due to using indices?
+            // TODO: Actually use a "Shader" object here for programmable shaders. It will take in a Vec3 and
+            // output a Vec4 (homogenous with w component)
+            // Right now, all the "vertex shader" does is is extend the vertex to a Vec4.
+            let mut triangle_hom = [
+                triangle_pos[0].extend(1.0),
+                triangle_pos[1].extend(1.0),
+                triangle_pos[2].extend(1.0),
+            ];
+
+            // After the vertex shader is run, our vertices now exist in clip space.
+            // TODO: Clip vertices here.
+
+            // After clipping the vertices, we can now perform a perspective divide
+            triangle_hom[0] = (triangle_hom[0].xyz() / triangle_hom[0].w).extend(triangle_hom[0].w);
+            triangle_hom[1] = (triangle_hom[1].xyz() / triangle_hom[1].w).extend(triangle_hom[1].w);
+            triangle_hom[2] = (triangle_hom[2].xyz() / triangle_hom[2].w).extend(triangle_hom[2].w);
+
+            // Finally, convert from ndc to screenspace
+            let triangle_screen = [
+                self.screenspace_matrix * triangle_hom[0],
+                self.screenspace_matrix * triangle_hom[1],
+                self.screenspace_matrix * triangle_hom[2],
+            ];
+
+            // TODO: Depth buffer
+
+            // TODO: Fragment shader
+            match self.draw_mode {
+                DrawMode::REGULAR => todo!(),
+                DrawMode::WIREFRAME => {
+                    // Three lines per triangle
+                    for j in 0..3 {
+                        let ssp1 =
+                            IVec2::new(triangle_screen[j].x as i32, triangle_screen[j].y as i32);
+                        let ssp2 = IVec2::new(
+                            triangle_screen[(j + 1) % 3].x as i32, // mod so we wrap back to the zero element
+                            triangle_screen[(j + 1) % 3].y as i32,
+                        );
+                        // Plot to color buffer
+                        self.plot_line(ssp1, ssp2, 0);
+                    }
+                }
+            }
+        }
 
         // Flush to screen
         self.fb.flush();
+        true
     }
 
     fn plot_line(&mut self, mut p1: IVec2, mut p2: IVec2, color: u32) {

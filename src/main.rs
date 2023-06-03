@@ -8,7 +8,7 @@ mod fb;
 mod fb_winit;
 mod renderer;
 use fb_winit::WinitFB;
-use renderer::Renderer;
+use renderer::{DrawMode, Renderer};
 
 fn main() {
     let mut event_loop = EventLoop::new();
@@ -26,6 +26,7 @@ fn main() {
         .expect("Could not load model.");
 
     let mut renderer = Renderer::new(fb);
+    renderer.set_draw_mode(DrawMode::WIREFRAME);
     renderer.bind_vertex_data(&models[0].mesh.positions, &models[0].mesh.indices);
 
     event_loop.run_return(|event, _, cf| {
