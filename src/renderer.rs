@@ -114,7 +114,9 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
             // TODO: Interpolate vertex shader outputs for fragment shader inputs
 
             match self.draw_mode {
-                DrawMode::REGULAR => todo!(),
+                DrawMode::REGULAR => {
+                    self.plot_triangle(screen_p0, screen_p1, screen_p2, shader);
+                }
                 DrawMode::WIREFRAME => {
                     self.plot_line(screen_p0, screen_p1, shader);
                     self.plot_line(screen_p1, screen_p2, shader);
@@ -126,6 +128,39 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         // Flush to screen
         self.fb.flush();
         true
+    }
+
+    fn tri_area_signed(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> i32 {
+        (p1 - p0).perp_dot(p2 - p0) / 2
+    }
+
+    fn plot_triangle<S: Shader>(&mut self, p0: IVec2, p1: IVec2, p2: IVec2, program: &S) {
+        // Ignore colinear triangles
+        // Why is this necessary? Why would a mesh ever have colinear/degenerate triangles?
+        if self.tri_area_signed(p0, p1, p2) == 0 {
+            return;
+        }
+
+        // TODO: Calculate bounding box, so we aren't naively checking the entire screen for every primitive
+        for y in 0..self.fb.get_height() {
+            for x in 0..self.fb.get_width() {
+                let pix = IVec2 {
+                    x: x as i32,
+                    y: y as i32,
+                };
+
+                // TODO: Calc barycentric coords
+                let a = self.tri_area_signed(p0, p1, pix) >= 0;
+                let b = self.tri_area_signed(p1, p2, pix) >= 0;
+                let c = self.tri_area_signed(p2, p0, pix) >= 0;
+
+                if a && b && c {
+                    let frag_output = program.fragment();
+                    let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
+                    self.fb.plot_pixel(x, y, fb_color);
+                }
+            }
+        }
     }
 
     fn plot_line<S: Shader>(&mut self, mut p1: IVec2, mut p2: IVec2, program: &S) {

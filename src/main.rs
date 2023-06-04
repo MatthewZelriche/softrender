@@ -40,7 +40,7 @@ fn main() {
     let (models, _) = tobj::load_obj("african_head.obj", &load_opt).expect("Could not load model.");
 
     let mut renderer = Renderer::new(fb);
-    renderer.set_draw_mode(DrawMode::WIREFRAME);
+    //renderer.set_draw_mode(DrawMode::WIREFRAME);
     renderer.bind_vertex_data(&models[0].mesh.positions, &models[0].mesh.indices);
 
     let shader = MyShader {};
