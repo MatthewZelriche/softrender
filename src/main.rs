@@ -45,6 +45,10 @@ fn main() {
 
     let shader = MyShader {};
 
+    // Performance counter vars
+    let mut frames = 0;
+    let mut total = 0.0;
+
     event_loop.run_return(|event, _, cf| {
         cf.set_poll();
 
@@ -61,8 +65,27 @@ fn main() {
             },
 
             Event::MainEventsCleared => {
+                let now = std::time::Instant::now();
+
                 renderer.clear_color(95 | 95 << 8 | 95 << 16);
                 renderer.draw(&shader);
+
+                // Calculate frametime.
+                let elapsed_time = now.elapsed().as_secs_f32();
+                total += elapsed_time;
+                frames += 1;
+                if total >= 5.0 {
+                    let avg = total / frames as f32;
+                    println!(
+                        "Avg frametime: {:.4}s / {:.3}ms / {:.3}us ({} fps)",
+                        avg,
+                        avg * 1000.0,
+                        avg * 1000.0 * 1000.0,
+                        1.0 / avg
+                    );
+                    frames = 0;
+                    total = total - 5.0;
+                }
             }
             _ => (),
         }
