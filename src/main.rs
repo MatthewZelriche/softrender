@@ -36,8 +36,8 @@ fn main() {
     let fb = WinitFB::new(start_size.width as u16, start_size.height as u16, &window)
         .expect("Failed to initialize framebuffer");
 
-    let (models, _) = tobj::load_obj("african_head.obj", &tobj::LoadOptions::default())
-        .expect("Could not load model.");
+    let load_opt = tobj::GPU_LOAD_OPTIONS;
+    let (models, _) = tobj::load_obj("african_head.obj", &load_opt).expect("Could not load model.");
 
     let mut renderer = Renderer::new(fb);
     renderer.set_draw_mode(DrawMode::WIREFRAME);
