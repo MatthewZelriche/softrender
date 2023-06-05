@@ -72,7 +72,7 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         self.index_buf = None;
     }
 
-    pub fn draw<S: Shader>(&mut self, shader: &S) -> bool {
+    pub fn draw<S: Shader>(&mut self, shader: &mut S) -> bool {
         // Rough draft of the pipeline. Will likely change.
         // TODO: Multithreading
         if self.vertex_buf == None || self.index_buf == None {
@@ -117,8 +117,6 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
 
             // TODO: Depth buffer
 
-            // TODO: Interpolate vertex shader outputs for fragment shader inputs
-
             match self.draw_mode {
                 DrawMode::REGULAR => {
                     self.plot_triangle(screen_p0, screen_p1, screen_p2, shader);
@@ -154,10 +152,11 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         (p1 - p0).perp_dot(p2 - p0) / 2
     }
 
-    fn plot_triangle<S: Shader>(&mut self, p0: IVec2, p1: IVec2, p2: IVec2, program: &S) {
+    fn plot_triangle<S: Shader>(&mut self, p0: IVec2, p1: IVec2, p2: IVec2, program: &mut S) {
         // Ignore colinear triangles
         // Why is this necessary? Why would a mesh ever have colinear/degenerate triangles?
-        if self.tri_area_signed(p0, p1, p2) == 0 {
+        let area = self.tri_area_signed(p0, p1, p2);
+        if area == 0 {
             return;
         }
 
@@ -169,12 +168,18 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
                     y: y as i32,
                 };
 
-                // TODO: Calc barycentric coords
-                let a = self.tri_area_signed(p0, p1, pix) >= 0;
-                let b = self.tri_area_signed(p1, p2, pix) >= 0;
-                let c = self.tri_area_signed(p2, p0, pix) >= 0;
+                let a = self.tri_area_signed(p0, p1, pix);
+                let b = self.tri_area_signed(p1, p2, pix);
+                let c = self.tri_area_signed(p2, p0, pix);
 
-                if a && b && c {
+                if a >= 0 && b >= 0 && c >= 0 {
+                    // Calculate barycentric coords for this pixel and inform the shader
+                    let lambda_x = b as f32 / area as f32;
+                    let lambda_y = c as f32 / area as f32;
+                    let lambda_z = a as f32 / area as f32;
+                    program.set_barycentric_coords(lambda_x, lambda_y, lambda_z);
+
+                    // Run fragment shader
                     let frag_output = program.fragment();
                     let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
                     self.fb.plot_pixel(x as u16, y as u16, fb_color);

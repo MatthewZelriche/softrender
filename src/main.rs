@@ -12,7 +12,17 @@ use fb_winit::WinitFB;
 use renderer::{DrawMode, Renderer};
 use shader::Shader;
 
-struct MyShader;
+struct MyShader {
+    barycentric_coords: glam::Vec3,
+}
+
+impl Default for MyShader {
+    fn default() -> Self {
+        Self {
+            barycentric_coords: glam::Vec3::ZERO,
+        }
+    }
+}
 
 impl Shader for MyShader {
     fn vertex(&self, pos: glam::Vec3) -> glam::Vec4 {
@@ -20,7 +30,18 @@ impl Shader for MyShader {
     }
 
     fn fragment(&self) -> glam::UVec3 {
-        glam::UVec3::new(0, 0, 0)
+        let x_col = glam::UVec3::new(255, 0, 0);
+        let y_col = glam::UVec3::new(0, 255, 0);
+        let z_col = glam::UVec3::new(0, 0, 255);
+
+        let interpolated_col = self.barycentric_coords.x * x_col.as_vec3()
+            + self.barycentric_coords.y * y_col.as_vec3()
+            + self.barycentric_coords.z * z_col.as_vec3();
+        interpolated_col.as_uvec3()
+    }
+
+    fn set_barycentric_coords(&mut self, x: f32, y: f32, z: f32) {
+        self.barycentric_coords = glam::Vec3::new(x, y, z);
     }
 }
 
@@ -43,7 +64,7 @@ fn main() {
     //renderer.set_draw_mode(DrawMode::WIREFRAME);
     renderer.bind_vertex_data(&models[0].mesh.positions, &models[0].mesh.indices);
 
-    let shader = MyShader {};
+    let mut shader = MyShader::default();
 
     // Performance counter vars
     let mut frames = 0;
@@ -68,7 +89,7 @@ fn main() {
                 let now = std::time::Instant::now();
 
                 renderer.clear_color(95 | 95 << 8 | 95 << 16);
-                renderer.draw(&shader);
+                renderer.draw(&mut shader);
 
                 // Calculate frametime.
                 let elapsed_time = now.elapsed().as_secs_f32();
