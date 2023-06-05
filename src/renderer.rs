@@ -3,6 +3,12 @@ use std::option::Option;
 
 use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4Swizzles};
 
+struct BoundingBox2D {
+    origin: IVec2,
+    width: i32,
+    height: i32,
+}
+
 pub enum DrawMode {
     REGULAR,
     WIREFRAME,
@@ -130,6 +136,20 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         true
     }
 
+    fn tri_bounding_box(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> BoundingBox2D {
+        let min_x = p0.x.min(p1.x.min(p2.x));
+        let max_x = p0.x.max(p1.x.max(p2.x));
+
+        let min_y = p0.y.min(p1.y.min(p2.y));
+        let max_y = p0.y.max(p1.y.max(p2.y));
+
+        BoundingBox2D {
+            origin: IVec2 { x: min_x, y: min_y },
+            width: max_x - min_x,
+            height: max_y - min_y,
+        }
+    }
+
     fn tri_area_signed(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> i32 {
         (p1 - p0).perp_dot(p2 - p0) / 2
     }
@@ -141,9 +161,9 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
             return;
         }
 
-        // TODO: Calculate bounding box, so we aren't naively checking the entire screen for every primitive
-        for y in 0..self.fb.get_height() {
-            for x in 0..self.fb.get_width() {
+        let bb = self.tri_bounding_box(p0, p1, p2);
+        for y in bb.origin.y..=bb.origin.y + bb.height {
+            for x in bb.origin.x..=bb.origin.x + bb.width {
                 let pix = IVec2 {
                     x: x as i32,
                     y: y as i32,
@@ -157,7 +177,7 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
                 if a && b && c {
                     let frag_output = program.fragment();
                     let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
-                    self.fb.plot_pixel(x, y, fb_color);
+                    self.fb.plot_pixel(x as u16, y as u16, fb_color);
                 }
             }
         }
