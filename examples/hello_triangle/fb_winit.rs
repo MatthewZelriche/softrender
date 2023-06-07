@@ -2,7 +2,7 @@ use softbuffer::GraphicsContext;
 
 use winit::window::Window;
 
-use crate::fb::Framebuffer;
+use softrender::fb::Framebuffer;
 use std::vec::Vec;
 
 pub struct WinitFB {

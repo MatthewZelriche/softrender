@@ -5,13 +5,13 @@ use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
 use winit::window::WindowBuilder;
 
-mod fb;
+use softrender::{
+    renderer::{DrawMode, Renderer},
+    shader::Shader,
+};
+
 mod fb_winit;
-mod renderer;
-mod shader;
 use fb_winit::WinitFB;
-use renderer::{DrawMode, Renderer};
-use shader::Shader;
 
 struct Vertex {
     pos: glam::Vec3,
