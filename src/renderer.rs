@@ -149,10 +149,7 @@ impl<T: Framebuffer> Renderer<T> {
         let bb = self.tri_bounding_box(p0, p1, p2);
         for y in bb.origin.y..=bb.origin.y + bb.height {
             for x in bb.origin.x..=bb.origin.x + bb.width {
-                let pix = IVec2 {
-                    x: x as i32,
-                    y: y as i32,
-                };
+                let pix = IVec2 { x, y };
 
                 // Geometrically, we attempt to divide our primitive into three "subtriangles" all converging
                 // at a given pixel. If all three subtriangles have a counter-clockwise winding order,
@@ -209,17 +206,15 @@ impl<T: Framebuffer> Renderer<T> {
 
         // Save a copy of the original points before we potentially swap them, so that
         // barycentric coordinates work correctly.
-        let p1_orig = p1.clone();
-        let p2_orig = p2.clone();
+        let p1_orig = p1;
+        let p2_orig = p2;
 
         // The X-coordinate in our points now acts as the coordinate of the driving axis, regardless of what
         // axis it is in ndc. We need to ensure p1 always comes "before" p2 on the driving axis, to ensure
         // our for loop runs independently of ordering of the two points, so we re-order the points if
         // necessary.
         if p1.x > p2.x {
-            let temp = p1;
-            p1 = p2;
-            p2 = temp;
+            std::mem::swap(&mut p1, &mut p2);
         }
 
         let dx = p2.x - p1.x;
@@ -243,7 +238,7 @@ impl<T: Framebuffer> Renderer<T> {
 
             // We pass p2_input again for the third argument because we know it will be zeroes out
             // by barycentric z coordinate, so its value is irrelevant
-            let interpolated = p1_input.interpolated(barycentric_coords, &p2_input, &p2_input);
+            let interpolated = p1_input.interpolated(barycentric_coords, p2_input, p2_input);
 
             let frag_output = program.fragment(interpolated);
             let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
@@ -256,7 +251,7 @@ impl<T: Framebuffer> Renderer<T> {
             }
 
             if eps >= 0 {
-                y += 1 * sign;
+                y += sign;
 
                 eps -= dx;
             }
