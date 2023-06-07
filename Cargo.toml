@@ -9,8 +9,11 @@ edition = "2021"
 
 [dependencies]
 glam = "0.24.0"
+unzip-array-of-tuple = "0.1.0"
+softrender-derive = { path = "softrender-derive" }
 
 [dev-dependencies]
 softbuffer = "0.2.0"
 winit = "0.28.6"
 tobj = "4.0.0"
+rand = "0.8.5"

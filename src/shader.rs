@@ -1,8 +1,38 @@
-use glam::{UVec3, Vec4};
+use glam::{UVec3, Vec2, Vec3, Vec4};
 
-// TODO: Programmable shaders need to be able to take in multiple inputs (and outputs). Use a vec?
-pub trait Shader<Vertex> {
-    fn vertex(&self, pos: &Vertex) -> Vec4;
-    fn fragment(&self) -> UVec3;
-    fn set_barycentric_coords(&mut self, x: f32, y: f32, z: f32); // TODO: Friendlier way of setting this.
+pub trait Shader<VertexIn, VertexOut> {
+    fn vertex(&self, pos: &VertexIn) -> (Vec4, VertexOut);
+    fn fragment(&self, interpolated: VertexOut) -> UVec3;
+}
+
+pub trait Barycentric {
+    fn interpolated(&self, coords: Vec3, second: &Self, third: &Self) -> Self;
+}
+
+impl Barycentric for f32 {
+    fn interpolated(&self, coords: Vec3, second: &Self, third: &Self) -> Self {
+        self * coords.x + second * coords.y + third * coords.z
+    }
+}
+
+impl Barycentric for Vec2 {
+    fn interpolated(&self, coords: Vec3, second: &Self, third: &Self) -> Self {
+        *self * coords.x + *second * coords.y + *third * coords.z
+    }
+}
+
+impl Barycentric for Vec3 {
+    fn interpolated(&self, coords: Vec3, second: &Self, third: &Self) -> Self {
+        *self * coords.x + *second * coords.y + *third * coords.z
+    }
+}
+
+impl Barycentric for Vec4 {
+    fn interpolated(&self, coords: Vec3, second: &Self, third: &Self) -> Self {
+        *self * coords.x + *second * coords.y + *third * coords.z
+    }
+}
+
+impl Barycentric for () {
+    fn interpolated(&self, _coords: Vec3, _second: &Self, _third: &Self) -> Self {}
 }

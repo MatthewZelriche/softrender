@@ -1,3 +1,7 @@
+#[macro_use]
+extern crate softrender_derive;
+
+use glam::Vec3;
 use std::iter::zip;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, WindowEvent};
@@ -6,49 +10,36 @@ use winit::platform::run_return::EventLoopExtRunReturn;
 use winit::window::WindowBuilder;
 
 use softrender::{
-    renderer::{DrawMode, Renderer},
-    shader::Shader,
+    renderer::Renderer,
+    shader::{Barycentric, Shader},
 };
 
 mod fb_winit;
 use fb_winit::WinitFB;
 
+#[derive(Barycentric)]
+struct VertexOut {
+    color: glam::Vec3,
+}
+
 struct Vertex {
     pos: glam::Vec3,
-    _normal: glam::Vec3,
-    _uv: glam::Vec2,
+    color: glam::Vec3,
 }
 
-struct MyShader {
-    barycentric_coords: glam::Vec3,
-}
-
-impl Default for MyShader {
-    fn default() -> Self {
-        Self {
-            barycentric_coords: glam::Vec3::ZERO,
-        }
-    }
-}
-
-impl Shader<Vertex> for MyShader {
-    fn vertex(&self, vertex: &Vertex) -> glam::Vec4 {
-        vertex.pos.extend(1.0)
+struct MyShader;
+impl Shader<Vertex, VertexOut> for MyShader {
+    fn vertex(&self, vertex: &Vertex) -> (glam::Vec4, VertexOut) {
+        (
+            vertex.pos.extend(1.0),
+            VertexOut {
+                color: vertex.color,
+            },
+        )
     }
 
-    fn fragment(&self) -> glam::UVec3 {
-        let x_col = glam::UVec3::new(255, 0, 0);
-        let y_col = glam::UVec3::new(0, 255, 0);
-        let z_col = glam::UVec3::new(0, 0, 255);
-
-        let interpolated_col = self.barycentric_coords.x * x_col.as_vec3()
-            + self.barycentric_coords.y * y_col.as_vec3()
-            + self.barycentric_coords.z * z_col.as_vec3();
-        interpolated_col.as_uvec3()
-    }
-
-    fn set_barycentric_coords(&mut self, x: f32, y: f32, z: f32) {
-        self.barycentric_coords = glam::Vec3::new(x, y, z);
+    fn fragment(&self, inputs: VertexOut) -> glam::UVec3 {
+        inputs.color.as_uvec3()
     }
 }
 
@@ -73,21 +64,25 @@ fn main() {
     let normal_data = &models[0].mesh.normals;
     let uv_data = &models[0].mesh.texcoords;
 
-    for (pos, (normal, uv)) in zip(
+    for (pos, (_normal, _uv)) in zip(
         pos_data.chunks(3),
         zip(normal_data.chunks(3), uv_data.chunks(2)),
     ) {
         vertices.push(Vertex {
             pos: glam::Vec3::from_slice(pos),
-            _normal: glam::Vec3::from_slice(normal),
-            _uv: glam::Vec2::from_slice(uv),
+            color: Vec3::new(
+                rand::random::<f32>() * 255.0,
+                rand::random::<f32>() * 255.0,
+                rand::random::<f32>() * 255.0,
+            ),
         });
     }
 
-    let mut renderer = Renderer::new(fb);
-    //renderer.set_draw_mode(DrawMode::WIREFRAME);
+    let indices = &models[0].mesh.indices;
 
-    let mut shader = MyShader::default();
+    let mut renderer = Renderer::new(fb);
+
+    let mut shader = MyShader {};
 
     // Performance counter vars
     let mut frames = 0;
@@ -112,7 +107,7 @@ fn main() {
                 let now = std::time::Instant::now();
 
                 renderer.clear_color(95 | 95 << 8 | 95 << 16);
-                renderer.draw(&mut shader, &vertices, &models[0].mesh.indices);
+                renderer.draw(&mut shader, &vertices, &indices);
 
                 // Calculate frametime.
                 let elapsed_time = now.elapsed().as_secs_f32();
