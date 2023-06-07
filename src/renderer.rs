@@ -1,7 +1,6 @@
 use crate::{fb::Framebuffer, shader::Shader};
-use std::option::Option;
 
-use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4Swizzles};
+use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec4Swizzles};
 
 struct BoundingBox2D {
     origin: IVec2,
@@ -25,16 +24,14 @@ fn calculate_screenspace_matrix(width: f32, height: f32) -> Mat4 {
     )
 }
 
-pub struct Renderer<'a, T: Framebuffer> {
+pub struct Renderer<T: Framebuffer> {
     fb: T,
-    vertex_buf: Option<&'a [f32]>,
-    index_buf: Option<&'a [u32]>,
     draw_mode: DrawMode,
     screenspace_matrix: Mat4,
 }
 
 // TODO: Determine how stateful this renderer should be. Store state, or pass as args to draw call?
-impl<'a, T: Framebuffer> Renderer<'a, T> {
+impl<T: Framebuffer> Renderer<T> {
     pub fn new(default_fb: T) -> Self {
         let a = calculate_screenspace_matrix(
             default_fb.get_width() as f32,
@@ -42,8 +39,6 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         );
         Renderer {
             fb: default_fb,
-            vertex_buf: None,
-            index_buf: None,
             draw_mode: DrawMode::REGULAR,
             screenspace_matrix: a,
         }
@@ -62,44 +57,25 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         self.draw_mode = new_mode;
     }
 
-    pub fn bind_vertex_data(&mut self, vertex_buf_in: &'a [f32], index_buf_in: &'a [u32]) {
-        self.vertex_buf = Some(vertex_buf_in);
-        self.index_buf = Some(index_buf_in);
-    }
-
-    pub fn unbind_vertex_data(&mut self) {
-        self.vertex_buf = None;
-        self.index_buf = None;
-    }
-
-    pub fn draw<S: Shader>(&mut self, shader: &mut S) -> bool {
+    pub fn draw<S: Shader<Vertex>, Vertex>(
+        &mut self,
+        shader: &mut S,
+        vbo: &[Vertex],
+        ibo: &[u32],
+    ) -> bool {
         // Rough draft of the pipeline. Will likely change.
         // TODO: Multithreading
-        if self.vertex_buf == None || self.index_buf == None {
-            return false;
-        }
 
         // Each triangle will always have 3 indices/vertices
-        for i in (0..self.index_buf.unwrap().len()).step_by(3) {
-            let v0_idx = self.index_buf.unwrap()[i] as usize;
-            let v1_idx = self.index_buf.unwrap()[i + 1] as usize;
-            let v2_idx = self.index_buf.unwrap()[i + 2] as usize;
+        for i in (0..ibo.len()).step_by(3) {
+            let v0_idx = ibo[i] as usize;
+            let v1_idx = ibo[i + 1] as usize;
+            let v2_idx = ibo[i + 2] as usize;
 
-            // TODO: Right now we assume vertex stride is 3 floats, but that will change.
-            let stride = 3;
-            let triangle_pos = [
-                Vec3::from_slice(self.vertex_buf.unwrap().get(v0_idx * stride..).unwrap()),
-                Vec3::from_slice(self.vertex_buf.unwrap().get(v1_idx * stride..).unwrap()),
-                Vec3::from_slice(self.vertex_buf.unwrap().get(v2_idx * stride..).unwrap()),
-            ];
-
-            // Apply the vertex shader to each vertex in the primitive
-            // TODO: Consider some way to not process a single vertex multiple times due to using indices?
-            // Right now, all the "vertex shader" does is is extend the vertex to a Vec4.
             let mut triangle_hom = [
-                shader.vertex(triangle_pos[0]),
-                shader.vertex(triangle_pos[1]),
-                shader.vertex(triangle_pos[2]),
+                shader.vertex(&vbo[v0_idx]),
+                shader.vertex(&vbo[v1_idx]),
+                shader.vertex(&vbo[v2_idx]),
             ];
 
             // After the vertex shader is run, our vertices now exist in clip space.
@@ -152,7 +128,7 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         (p1 - p0).perp_dot(p2 - p0) / 2
     }
 
-    fn plot_triangle<S: Shader>(&mut self, p0: IVec2, p1: IVec2, p2: IVec2, program: &mut S) {
+    fn plot_triangle<S: Shader<V>, V>(&mut self, p0: IVec2, p1: IVec2, p2: IVec2, program: &mut S) {
         // Ignore colinear triangles
         // Why is this necessary? Why would a mesh ever have colinear/degenerate triangles?
         let area = self.tri_area_signed(p0, p1, p2);
@@ -188,7 +164,7 @@ impl<'a, T: Framebuffer> Renderer<'a, T> {
         }
     }
 
-    fn plot_line<S: Shader>(&mut self, mut p1: IVec2, mut p2: IVec2, program: &S) {
+    fn plot_line<S: Shader<V>, V>(&mut self, mut p1: IVec2, mut p2: IVec2, program: &S) {
         // Special case for a "line" thats a single point
         if p1 == p2 {
             let frag_output = program.fragment();

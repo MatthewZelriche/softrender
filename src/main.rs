@@ -1,3 +1,4 @@
+use std::iter::zip;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
@@ -12,6 +13,12 @@ use fb_winit::WinitFB;
 use renderer::{DrawMode, Renderer};
 use shader::Shader;
 
+struct Vertex {
+    pos: glam::Vec3,
+    _normal: glam::Vec3,
+    _uv: glam::Vec2,
+}
+
 struct MyShader {
     barycentric_coords: glam::Vec3,
 }
@@ -24,9 +31,9 @@ impl Default for MyShader {
     }
 }
 
-impl Shader for MyShader {
-    fn vertex(&self, pos: glam::Vec3) -> glam::Vec4 {
-        pos.extend(1.0)
+impl Shader<Vertex> for MyShader {
+    fn vertex(&self, vertex: &Vertex) -> glam::Vec4 {
+        vertex.pos.extend(1.0)
     }
 
     fn fragment(&self) -> glam::UVec3 {
@@ -60,9 +67,25 @@ fn main() {
     let load_opt = tobj::GPU_LOAD_OPTIONS;
     let (models, _) = tobj::load_obj("african_head.obj", &load_opt).expect("Could not load model.");
 
+    let mut vertices = Vec::new();
+
+    let pos_data = &models[0].mesh.positions;
+    let normal_data = &models[0].mesh.normals;
+    let uv_data = &models[0].mesh.texcoords;
+
+    for (pos, (normal, uv)) in zip(
+        pos_data.chunks(3),
+        zip(normal_data.chunks(3), uv_data.chunks(2)),
+    ) {
+        vertices.push(Vertex {
+            pos: glam::Vec3::from_slice(pos),
+            _normal: glam::Vec3::from_slice(normal),
+            _uv: glam::Vec2::from_slice(uv),
+        });
+    }
+
     let mut renderer = Renderer::new(fb);
     //renderer.set_draw_mode(DrawMode::WIREFRAME);
-    renderer.bind_vertex_data(&models[0].mesh.positions, &models[0].mesh.indices);
 
     let mut shader = MyShader::default();
 
@@ -89,7 +112,7 @@ fn main() {
                 let now = std::time::Instant::now();
 
                 renderer.clear_color(95 | 95 << 8 | 95 << 16);
-                renderer.draw(&mut shader);
+                renderer.draw(&mut shader, &vertices, &models[0].mesh.indices);
 
                 // Calculate frametime.
                 let elapsed_time = now.elapsed().as_secs_f32();
