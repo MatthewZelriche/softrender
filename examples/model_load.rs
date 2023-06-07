@@ -14,8 +14,8 @@ use softrender::{
     shader::{Barycentric, Shader},
 };
 
-mod fb_winit;
-use fb_winit::WinitFB;
+mod util;
+use util::WinitFB;
 
 #[derive(Barycentric)]
 struct VertexOut {
