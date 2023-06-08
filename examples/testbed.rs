@@ -18,30 +18,50 @@ use softrender::{
 #[derive(Barycentric)]
 struct VertexOut {
     color: glam::Vec3,
+    normal: glam::Vec3,
+    frag_pos: glam::Vec3,
 }
 
 struct Vertex {
     pos: glam::Vec3,
     color: glam::Vec3,
+    normal: glam::Vec3,
 }
 
 struct MyShader {
     // Fields in your shader can act as bound uniforms
     proj_mat: Mat4,
     model_mat: Affine3A,
+    light_pos: Vec3,
 }
 impl Shader<Vertex, VertexOut> for MyShader {
     fn vertex(&self, vertex: &Vertex) -> (glam::Vec4, VertexOut) {
+        let original_vertex_pos = vertex.pos;
         (
             self.proj_mat * self.model_mat * vertex.pos.extend(1.0),
             VertexOut {
                 color: vertex.color,
+                normal: vertex.normal,
+                frag_pos: original_vertex_pos,
             },
         )
     }
 
     fn fragment(&self, inputs: VertexOut) -> glam::UVec3 {
-        inputs.color.as_uvec3()
+        // Calculations are performed in a normalized range, then scaled to 0-255.
+        // TODO: Consider returning a value between 0-1 instead of 0-255?
+        let light_color = Vec3::new(1.0, 1.0, 1.0);
+
+        let ambient_intensity = 0.1;
+        let ambient_light = ambient_intensity * light_color;
+
+        let light_dir = (self.light_pos - inputs.frag_pos).normalize();
+        let diffuse_intensity = f32::max(inputs.normal.dot(light_dir), 0.0);
+        let diffuse_light = diffuse_intensity * light_color;
+
+        ((ambient_light + diffuse_light) * 255.0)
+            .clamp(Vec3::ZERO, Vec3::new(255.0, 255.0, 255.0))
+            .as_uvec3()
     }
 }
 
@@ -63,7 +83,7 @@ fn main() {
     let normal_data = &models[0].mesh.normals;
     let uv_data = &models[0].mesh.texcoords;
 
-    for (pos, (_normal, _uv)) in zip(
+    for (pos, (normal, _uv)) in zip(
         pos_data.chunks(3),
         zip(normal_data.chunks(3), uv_data.chunks(2)),
     ) {
@@ -74,6 +94,7 @@ fn main() {
                 rand::random::<f32>() * 255.0,
                 rand::random::<f32>() * 255.0,
             ),
+            normal: Vec3::from_slice(normal),
         });
     }
 
@@ -85,6 +106,7 @@ fn main() {
         proj_mat: Mat4::perspective_rh(f32::to_radians(90.0), 1.0, 0.1, 5.0),
         model_mat: Affine3A::from_translation(Vec3::new(0.0, 0.0, -1.5))
             * Affine3A::from_rotation_y(f32::to_radians(25.0)),
+        light_pos: Vec3::new(0.0, 0.0, 5.0),
     };
 
     // Performance counter vars
