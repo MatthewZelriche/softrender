@@ -1,13 +1,12 @@
 #[macro_use]
 extern crate softrender_derive;
-mod util;
 
 use glam::Vec3;
+use softbuffer::GraphicsContext;
 use softrender::{
     renderer::Renderer,
     shader::{Barycentric, Shader},
 };
-use util::WinitFB;
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -60,19 +59,10 @@ fn main() {
         .with_resizable(false)
         .build(&event_loop)
         .expect("Failed to initialize window");
-
-    // Construct our software framebuffer using the Framebuffer trait
-    let start_size = window.inner_size();
-    let fb = WinitFB::new(
-        start_size.width as u16,
-        start_size.height as u16,
-        &window,
-        0,
-    )
-    .expect("Failed to initialize framebuffer");
+    let mut gc = unsafe { GraphicsContext::new(&window, &window).expect("Failed to create GC") };
 
     // Create our renderer, as well as an example shader.
-    let mut renderer = Renderer::new(fb);
+    let mut renderer = Renderer::new(800, 800);
     let mut shader = MyShader {};
 
     // Build the buffer data for our triangle
@@ -109,7 +99,12 @@ fn main() {
                 renderer.clear_color(95 | 95 << 8 | 95 << 16);
                 // Each call to draw represents one invocation of the render pipeline.
                 // You can perform many calls per frame, with any combination of shaders, vertices, and indices.
-                renderer.draw(&mut shader, &vertices, &indices);
+                let color_buf = renderer.draw(&mut shader, &vertices, &indices);
+                gc.set_buffer(
+                    color_buf.get_raw(),
+                    color_buf.get_width(),
+                    color_buf.get_height(),
+                );
             }
             _ => (),
         }

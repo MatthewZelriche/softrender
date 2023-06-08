@@ -1,11 +1,48 @@
-pub trait Framebuffer<T> {
-    fn fill(&mut self, value: T);
-    fn plot_pixel(&mut self, x: u16, y: u16, value: T);
-    fn resize(&mut self, new_width: u16, new_height: u16, default: T);
-    fn get_width(&self) -> u16;
-    fn get_height(&self) -> u16;
+pub struct Framebuffer<T> {
+    width: u16,
+    height: u16,
+    buf: Vec<T>,
 }
 
-pub trait Flushable {
-    fn flush(&mut self);
+impl<T: Default + Copy> Framebuffer<T> {
+    pub fn new(width: u16, height: u16) -> Self {
+        let buf = vec![T::default(); width as usize * height as usize];
+        Framebuffer {
+            width: width,
+            height: height,
+            buf,
+        }
+    }
+
+    pub fn fill(&mut self, value: T) {
+        for pixel in &mut self.buf {
+            *pixel = value;
+        }
+    }
+
+    pub fn plot_pixel(&mut self, x: u16, mut y: u16, value: T) {
+        // Invert y so that the start coordinate of the buffer is bottom left.
+        y = (self.width - 1) - y;
+        let idx = y as usize * self.width as usize + x as usize;
+        self.buf[idx] = value;
+    }
+
+    pub fn resize(&mut self, new_width: u16, new_height: u16, default: T) {
+        self.width = new_width;
+        self.height = new_height;
+        let new_size = self.width as usize * self.height as usize;
+        self.buf.resize(new_size, default);
+    }
+
+    pub fn get_width(&self) -> u16 {
+        self.width
+    }
+
+    pub fn get_height(&self) -> u16 {
+        self.height
+    }
+
+    pub fn get_raw(&self) -> &[T] {
+        self.buf.as_slice()
+    }
 }

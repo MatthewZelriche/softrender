@@ -2,6 +2,7 @@
 extern crate softrender_derive;
 
 use glam::Vec3;
+use softbuffer::GraphicsContext;
 use std::iter::zip;
 use winit::dpi::LogicalSize;
 use winit::event::{Event, WindowEvent};
@@ -13,9 +14,6 @@ use softrender::{
     renderer::Renderer,
     shader::{Barycentric, Shader},
 };
-
-mod util;
-use util::WinitFB;
 
 #[derive(Barycentric)]
 struct VertexOut {
@@ -50,15 +48,7 @@ fn main() {
         .with_resizable(false)
         .build(&event_loop)
         .expect("Failed to initialize window");
-
-    let start_size = window.inner_size();
-    let fb = WinitFB::new(
-        start_size.width as u16,
-        start_size.height as u16,
-        &window,
-        0,
-    )
-    .expect("Failed to initialize framebuffer");
+    let mut gc = unsafe { GraphicsContext::new(&window, &window).expect("Failed to create GC") };
 
     let load_opt = tobj::GPU_LOAD_OPTIONS;
     let (models, _) = tobj::load_obj("african_head.obj", &load_opt).expect("Could not load model.");
@@ -85,7 +75,7 @@ fn main() {
 
     let indices = &models[0].mesh.indices;
 
-    let mut renderer = Renderer::new(fb);
+    let mut renderer = Renderer::new(800, 800);
 
     let mut shader = MyShader {};
 
@@ -112,7 +102,12 @@ fn main() {
                 let now = std::time::Instant::now();
 
                 renderer.clear_color(95 | 95 << 8 | 95 << 16);
-                renderer.draw(&mut shader, &vertices, &indices);
+                let color_buf = renderer.draw(&mut shader, &vertices, &indices);
+                gc.set_buffer(
+                    color_buf.get_raw(),
+                    color_buf.get_width(),
+                    color_buf.get_height(),
+                );
 
                 // Calculate frametime.
                 let elapsed_time = now.elapsed().as_secs_f32();

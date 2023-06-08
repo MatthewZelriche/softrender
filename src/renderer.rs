@@ -1,5 +1,5 @@
 use crate::{
-    fb::{Flushable, Framebuffer},
+    fb::Framebuffer,
     shader::{Barycentric, Shader},
 };
 
@@ -28,18 +28,18 @@ fn calculate_screenspace_matrix(width: f32, height: f32) -> Mat4 {
     )
 }
 
-pub struct Renderer<T: Flushable + Framebuffer<u32>> {
-    cb: T,
+pub struct Renderer {
+    cb: Framebuffer<u32>,
     draw_mode: DrawMode,
     screenspace_matrix: Mat4,
 }
 
 // TODO: Determine how stateful this renderer should be. Store state, or pass as args to draw call?
-impl<T: Flushable + Framebuffer<u32>> Renderer<T> {
-    pub fn new(cb: T) -> Self {
-        let a = calculate_screenspace_matrix(cb.get_width() as f32, cb.get_height() as f32);
+impl Renderer {
+    pub fn new(width: u16, height: u16) -> Self {
+        let a = calculate_screenspace_matrix(width as f32, height as f32);
         Renderer {
-            cb,
+            cb: Framebuffer::new(width, height),
             draw_mode: DrawMode::REGULAR,
             screenspace_matrix: a,
         }
@@ -63,7 +63,7 @@ impl<T: Flushable + Framebuffer<u32>> Renderer<T> {
         shader: &mut S,
         vbo: &[Vertex],
         ibo: &[u32],
-    ) -> bool {
+    ) -> &Framebuffer<u32> {
         // Rough draft of the pipeline. Will likely change.
         // TODO: Multithreading
 
@@ -105,9 +105,10 @@ impl<T: Flushable + Framebuffer<u32>> Renderer<T> {
                 }
             }
         }
-        // Flush to screen
-        self.cb.flush();
-        true
+
+        // We've completed a drawcall into the framebuffer, present it to the user so they can
+        // do whatever they need with it
+        &self.cb
     }
 
     fn tri_bounding_box(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> BoundingBox2D {
