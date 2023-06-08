@@ -63,8 +63,13 @@ fn main() {
 
     // Construct our software framebuffer using the Framebuffer trait
     let start_size = window.inner_size();
-    let fb = WinitFB::new(start_size.width as u16, start_size.height as u16, &window)
-        .expect("Failed to initialize framebuffer");
+    let fb = WinitFB::new(
+        start_size.width as u16,
+        start_size.height as u16,
+        &window,
+        0,
+    )
+    .expect("Failed to initialize framebuffer");
 
     // Create our renderer, as well as an example shader.
     let mut renderer = Renderer::new(fb);

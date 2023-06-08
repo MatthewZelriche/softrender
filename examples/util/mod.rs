@@ -2,25 +2,25 @@ use softbuffer::GraphicsContext;
 
 use winit::window::Window;
 
-use softrender::fb::Framebuffer;
+use softrender::fb::{Flushable, Framebuffer};
 use std::vec::Vec;
 
-pub struct WinitFB {
+pub struct WinitFB<T: Clone> {
     width: u16,
     height: u16,
     gc: GraphicsContext,
-    buf: Vec<u32>,
+    buf: Vec<T>,
 }
 
-impl WinitFB {
-    pub fn new(width: u16, height: u16, handle: &Window) -> Result<Self, String> {
+impl<T: Clone> WinitFB<T> {
+    pub fn new(width: u16, height: u16, handle: &Window, default: T) -> Result<Self, String> {
         let gc_res = unsafe { GraphicsContext::new(&handle, &handle) };
         match gc_res {
             Ok(gc) => Ok(WinitFB {
                 width,
                 height,
                 gc,
-                buf: vec![0u32; width as usize * height as usize],
+                buf: vec![default; width as usize * height as usize],
             }),
             Err(err) => Err(std::format!(
                 "Error constructing underlying software buffer: {}",
@@ -30,10 +30,10 @@ impl WinitFB {
     }
 }
 
-impl Framebuffer for WinitFB {
-    fn fill(&mut self, color: u32) {
+impl<T: Clone + Copy> Framebuffer<T> for WinitFB<T> {
+    fn fill(&mut self, value: T) {
         for pixel in &mut self.buf {
-            *pixel = color;
+            *pixel = value;
         }
     }
 
@@ -45,23 +45,25 @@ impl Framebuffer for WinitFB {
         self.height
     }
 
-    fn plot_pixel(&mut self, x: u16, mut y: u16, color: u32) {
+    fn plot_pixel(&mut self, x: u16, mut y: u16, value: T) {
         // Calculate the inverse of the y coordinate, because softbuffer has topleft as origin,
         // but we need bottom left.
         y = (self.width - 1) - y;
         let idx = y as usize * self.width as usize + x as usize;
-        self.buf[idx] = color;
+        self.buf[idx] = value;
     }
 
-    fn flush(&mut self) {
-        self.gc
-            .set_buffer(self.buf.as_slice(), self.width, self.height);
-    }
-
-    fn resize(&mut self, new_width: u16, new_height: u16) {
+    fn resize(&mut self, new_width: u16, new_height: u16, default: T) {
         self.width = new_width;
         self.height = new_height;
         let new_size = self.width as usize * self.height as usize;
-        self.buf.resize(new_size, 0);
+        self.buf.resize(new_size, default);
+    }
+}
+
+impl Flushable for WinitFB<u32> {
+    fn flush(&mut self) {
+        self.gc
+            .set_buffer(self.buf.as_slice(), self.width, self.height);
     }
 }

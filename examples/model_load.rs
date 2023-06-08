@@ -52,8 +52,13 @@ fn main() {
         .expect("Failed to initialize window");
 
     let start_size = window.inner_size();
-    let fb = WinitFB::new(start_size.width as u16, start_size.height as u16, &window)
-        .expect("Failed to initialize framebuffer");
+    let fb = WinitFB::new(
+        start_size.width as u16,
+        start_size.height as u16,
+        &window,
+        0,
+    )
+    .expect("Failed to initialize framebuffer");
 
     let load_opt = tobj::GPU_LOAD_OPTIONS;
     let (models, _) = tobj::load_obj("african_head.obj", &load_opt).expect("Could not load model.");

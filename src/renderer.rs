@@ -1,5 +1,5 @@
 use crate::{
-    fb::Framebuffer,
+    fb::{Flushable, Framebuffer},
     shader::{Barycentric, Shader},
 };
 
@@ -28,33 +28,30 @@ fn calculate_screenspace_matrix(width: f32, height: f32) -> Mat4 {
     )
 }
 
-pub struct Renderer<T: Framebuffer> {
-    fb: T,
+pub struct Renderer<T: Flushable + Framebuffer<u32>> {
+    cb: T,
     draw_mode: DrawMode,
     screenspace_matrix: Mat4,
 }
 
 // TODO: Determine how stateful this renderer should be. Store state, or pass as args to draw call?
-impl<T: Framebuffer> Renderer<T> {
-    pub fn new(default_fb: T) -> Self {
-        let a = calculate_screenspace_matrix(
-            default_fb.get_width() as f32,
-            default_fb.get_height() as f32,
-        );
+impl<T: Flushable + Framebuffer<u32>> Renderer<T> {
+    pub fn new(cb: T) -> Self {
+        let a = calculate_screenspace_matrix(cb.get_width() as f32, cb.get_height() as f32);
         Renderer {
-            fb: default_fb,
+            cb,
             draw_mode: DrawMode::REGULAR,
             screenspace_matrix: a,
         }
     }
 
     pub fn set_fb_size(&mut self, width: u16, height: u16) {
-        self.fb.resize(width, height);
+        self.cb.resize(width, height, 0);
         self.screenspace_matrix = calculate_screenspace_matrix(width as f32, height as f32);
     }
 
     pub fn clear_color(&mut self, new_color: u32) {
-        self.fb.fill(new_color);
+        self.cb.fill(new_color);
     }
 
     pub fn set_draw_mode(&mut self, new_mode: DrawMode) {
@@ -109,7 +106,7 @@ impl<T: Framebuffer> Renderer<T> {
             }
         }
         // Flush to screen
-        self.fb.flush();
+        self.cb.flush();
         true
     }
 
@@ -176,7 +173,7 @@ impl<T: Framebuffer> Renderer<T> {
                     );
                     let frag_output = program.fragment(interpolated);
                     let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
-                    self.fb.plot_pixel(x as u16, y as u16, fb_color);
+                    self.cb.plot_pixel(x as u16, y as u16, fb_color);
                 }
             }
         }
@@ -244,10 +241,10 @@ impl<T: Framebuffer> Renderer<T> {
             let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
             if y_long {
                 // Swap back to screen-space
-                self.fb.plot_pixel(y as u16, x as u16, fb_color);
+                self.cb.plot_pixel(y as u16, x as u16, fb_color);
             } else {
                 // x and y are already in screen-space
-                self.fb.plot_pixel(x as u16, y as u16, fb_color);
+                self.cb.plot_pixel(x as u16, y as u16, fb_color);
             }
 
             if eps >= 0 {
