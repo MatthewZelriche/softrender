@@ -22,7 +22,7 @@ impl<T: Default + Copy> Framebuffer<T> {
 
     pub fn plot_pixel(&mut self, x: u16, mut y: u16, value: T) {
         // Invert y so that the start coordinate of the buffer is bottom left.
-        y = (self.width - 1) - y;
+        y = (self.height - 1) - y;
         let idx = y as usize * self.width as usize + x as usize;
         self.buf[idx] = value;
     }

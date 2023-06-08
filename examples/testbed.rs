@@ -68,7 +68,7 @@ impl Shader<Vertex, VertexOut> for MyShader {
 fn main() {
     let mut event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_inner_size(LogicalSize::new(800, 800))
+        .with_inner_size(LogicalSize::new(1024, 768))
         .with_resizable(false)
         .build(&event_loop)
         .expect("Failed to initialize window");
@@ -100,10 +100,16 @@ fn main() {
 
     let indices = &models[0].mesh.indices;
 
-    let mut renderer = Renderer::new(800, 800);
+    let window_size = window.inner_size();
+    let mut renderer = Renderer::new(window_size.width as u16, window_size.height as u16);
 
     let mut shader = MyShader {
-        proj_mat: Mat4::perspective_rh(f32::to_radians(90.0), 1.0, 0.1, 5.0),
+        proj_mat: Mat4::perspective_rh(
+            f32::to_radians(90.0),
+            window_size.width as f32 / window_size.height as f32,
+            0.1,
+            5.0,
+        ),
         model_mat: Affine3A::from_translation(Vec3::new(0.0, 0.0, -1.5))
             * Affine3A::from_rotation_y(f32::to_radians(25.0)),
         light_pos: Vec3::new(0.0, 0.0, 5.0),
@@ -124,6 +130,12 @@ fn main() {
                 WindowEvent::CloseRequested => cf.set_exit(),
                 WindowEvent::Resized(inner_size) => {
                     renderer.set_fb_size(inner_size.width as u16, inner_size.height as u16);
+                    shader.proj_mat = Mat4::perspective_rh(
+                        f32::to_radians(90.0),
+                        inner_size.width as f32 / inner_size.height as f32,
+                        0.1,
+                        5.0,
+                    );
                 }
                 _ => (),
             },
