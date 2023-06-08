@@ -132,8 +132,8 @@ impl Renderer {
         }
     }
 
-    fn tri_area_signed(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> i32 {
-        (p1 - p0).perp_dot(p2 - p0) / 2
+    fn tri_area_signed(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> f32 {
+        (p1 - p0).perp_dot(p2 - p0) as f32 / 2.0
     }
 
     fn plot_triangle<S: Shader<V, VI>, V, VI: Barycentric>(
@@ -147,7 +147,7 @@ impl Renderer {
         // Ignore colinear triangles
         // Why is this necessary? Why would a mesh ever have colinear/degenerate triangles?
         let area = self.tri_area_signed(p0, p1, p2);
-        if area == 0 {
+        if area == 0.0 {
             return;
         }
 
@@ -165,7 +165,7 @@ impl Renderer {
                 let b = self.tri_area_signed(p1, p2, pix);
                 let c = self.tri_area_signed(p2, p0, pix);
 
-                if a >= 0 && b >= 0 && c >= 0 {
+                if a >= 0.0 && b >= 0.0 && c >= 0.0 {
                     // Calculate barycentric coords for this pixel and inform the shader=
                     let barycentric_coords = Vec3::new(
                         b as f32 / area as f32,
