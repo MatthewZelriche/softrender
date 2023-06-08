@@ -24,7 +24,7 @@ fn calculate_screenspace_matrix(width: f32, height: f32) -> Mat4 {
         vec4(max_cols / 2.0, 0.0, 0.0, 0.0),
         vec4(0.0, max_rows / 2.0, 0.0, 0.0),
         vec4(0.0, 0.0, 1.0, 0.0),
-        vec4(max_cols / 2.0, max_rows / 2.0, 0.0, 1.0),
+        vec4(max_cols / 2.0, max_rows / 2.0, 1.0, 1.0),
     )
 }
 
@@ -88,9 +88,16 @@ impl Renderer {
             clip_pos[2] = (clip_pos[2].xyz() / clip_pos[2].w).extend(clip_pos[2].w);
 
             // Finally, convert from ndc to screenspace
-            let screen_p0 = (self.screenspace_matrix * clip_pos[0]).xy().as_ivec2();
-            let screen_p1 = (self.screenspace_matrix * clip_pos[1]).xy().as_ivec2();
-            let screen_p2 = (self.screenspace_matrix * clip_pos[2]).xy().as_ivec2();
+            // Homogenous component must be 1.0!
+            let screen_p0 = (self.screenspace_matrix * clip_pos[0].xyz().extend(1.0))
+                .xy()
+                .as_ivec2();
+            let screen_p1 = (self.screenspace_matrix * clip_pos[1].xyz().extend(1.0))
+                .xy()
+                .as_ivec2();
+            let screen_p2 = (self.screenspace_matrix * clip_pos[2].xyz().extend(1.0))
+                .xy()
+                .as_ivec2();
 
             // TODO: Depth buffer
 

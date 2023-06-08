@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate softrender_derive;
 
-use glam::Vec3;
+use glam::{Affine3A, Mat4, Vec3};
 use softbuffer::GraphicsContext;
 use std::iter::zip;
 use winit::dpi::LogicalSize;
@@ -25,11 +25,15 @@ struct Vertex {
     color: glam::Vec3,
 }
 
-struct MyShader;
+struct MyShader {
+    // Fields in your shader can act as bound uniforms
+    proj_mat: Mat4,
+    model_mat: Affine3A,
+}
 impl Shader<Vertex, VertexOut> for MyShader {
     fn vertex(&self, vertex: &Vertex) -> (glam::Vec4, VertexOut) {
         (
-            vertex.pos.extend(1.0),
+            self.proj_mat * self.model_mat * vertex.pos.extend(1.0),
             VertexOut {
                 color: vertex.color,
             },
@@ -77,7 +81,11 @@ fn main() {
 
     let mut renderer = Renderer::new(800, 800);
 
-    let mut shader = MyShader {};
+    let mut shader = MyShader {
+        proj_mat: Mat4::perspective_rh(f32::to_radians(90.0), 1.0, 0.1, 5.0),
+        model_mat: Affine3A::from_translation(Vec3::new(0.0, 0.0, -1.5))
+            * Affine3A::from_rotation_y(f32::to_radians(25.0)),
+    };
 
     // Performance counter vars
     let mut frames = 0;
