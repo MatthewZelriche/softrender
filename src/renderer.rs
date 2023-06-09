@@ -86,6 +86,88 @@ impl Renderer {
 
             // After the vertex shader is run, our vertices now exist in clip space.
             // TODO: Clip vertices here.
+            // TODO: Interpolate vertex data
+            // Clipping box has 6 sides, have to test for each side
+            let mut output_verts = [
+                clip_pos[0],
+                clip_pos[1],
+                clip_pos[2],
+                Vec4::ZERO,
+                Vec4::ZERO,
+                Vec4::ZERO,
+            ];
+            let mut in_vert_count;
+            let mut out_vert_count = 3;
+            let mut out_next_idx;
+
+            let mut point_axis = 2; // Start at last index so we can use modular arithmetic to
+                                    // "wrap around" to zero on the first iteration
+            for i in 0..6 {
+                // Set input verts to the output verts of the previous plane iter
+                let input_verts = output_verts;
+                in_vert_count = out_vert_count;
+
+                // Clear the output vertices
+                output_verts = [Vec4::ZERO; 6];
+                out_vert_count = 0;
+                out_next_idx = 0;
+
+                // Our clipping planes are represented by an axis and the sign of w, determine the plane
+                // we are currently operating on
+                let w_sign;
+                let op = if i % 2 == 0 {
+                    w_sign = -1.0;
+                    point_axis = (point_axis + 1) % 3; // We've handled both cases for a single axis, inc
+                    |w: f32, x: f32| -w <= x
+                } else {
+                    w_sign = 1.0;
+                    |w: f32, x: f32| x <= w
+                };
+
+                for vert_idx in 0i8..in_vert_count {
+                    let curr = input_verts[vert_idx as usize];
+                    let prev = input_verts[(vert_idx - 1).rem_euclid(in_vert_count) as usize];
+
+                    // Compute intersection between curr, previous, and our clipping plane.
+                    let interp_val = (w_sign * curr[3] - curr[point_axis])
+                        / ((w_sign * curr[3] - curr[point_axis])
+                            - (w_sign * prev[3] - prev[point_axis]));
+                    let intersection = curr.lerp(prev, interp_val);
+
+                    // Is the current point on the "inside" of this clipping plane?
+                    if op(curr[3], curr[point_axis]) {
+                        if !op(prev[3], prev[point_axis]) {
+                            // Current is inside, but prev is outside, so we have a verified
+                            // intersection on this plane. This is our new clipped vertex for this line!
+                            output_verts[out_next_idx] = intersection;
+                            out_next_idx += 1;
+                            out_vert_count += 1;
+                        }
+                        // Both points are inside this clipping plane
+                        output_verts[out_next_idx] = curr;
+                        out_next_idx += 1;
+                        out_vert_count += 1;
+                    } else if op(prev[3], prev[point_axis]) {
+                        // Current point is outside, but prev is inside. We add the clipped point
+                        // as normal, but don't add curr.
+                        output_verts[out_next_idx] = intersection;
+                        out_next_idx += 1;
+                        out_vert_count += 1;
+                    } else {
+                        // Both points lay outside this clipping plane, we can discard this line entirely
+                    }
+                }
+            }
+
+            // At this point we can have up to six vertices.
+            // TODO: Build triangle fan
+            if out_vert_count != 3 {
+                panic!("aaa");
+            }
+            println!("{:?}", output_verts);
+            clip_pos[0] = output_verts[0];
+            clip_pos[1] = output_verts[1];
+            clip_pos[2] = output_verts[2];
 
             // After clipping the vertices, we can now perform a perspective divide
             clip_pos[0] = (clip_pos[0].xyz() / clip_pos[0].w).extend(clip_pos[0].w);
