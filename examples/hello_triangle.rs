@@ -96,7 +96,7 @@ fn main() {
 
             Event::MainEventsCleared => {
                 // Render a frame.
-                renderer.clear_color(95 | 95 << 8 | 95 << 16);
+                renderer.clear_framebuffer(95 | 95 << 8 | 95 << 16);
                 // Each call to draw represents one invocation of the render pipeline.
                 // You can perform many calls per frame, with any combination of shaders, vertices, and indices.
                 let color_buf = renderer.draw(&mut shader, &vertices, &indices);

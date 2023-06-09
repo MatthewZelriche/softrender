@@ -27,6 +27,12 @@ impl<T: Default + Copy> Framebuffer<T> {
         self.buf[idx] = value;
     }
 
+    pub fn get_pixel(&self, x: u16, mut y: u16) -> T {
+        y = (self.height - 1) - y;
+        let idx = y as usize * self.width as usize + x as usize;
+        self.buf[idx]
+    }
+
     pub fn resize(&mut self, new_width: u16, new_height: u16, default: T) {
         self.width = new_width;
         self.height = new_height;

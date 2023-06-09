@@ -143,7 +143,7 @@ fn main() {
             Event::MainEventsCleared => {
                 let now = std::time::Instant::now();
 
-                renderer.clear_color(95 | 95 << 8 | 95 << 16);
+                renderer.clear_framebuffer(95 | 95 << 8 | 95 << 16);
                 let color_buf = renderer.draw(&mut shader, &vertices, &indices);
                 gc.set_buffer(
                     color_buf.get_raw(),

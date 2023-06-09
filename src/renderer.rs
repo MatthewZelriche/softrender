@@ -30,6 +30,7 @@ fn calculate_screenspace_matrix(width: f32, height: f32) -> Mat4 {
 
 pub struct Renderer {
     cb: Framebuffer<u32>,
+    db: Framebuffer<f32>,
     draw_mode: DrawMode,
     screenspace_matrix: Mat4,
 }
@@ -40,6 +41,7 @@ impl Renderer {
         let a = calculate_screenspace_matrix(width as f32, height as f32);
         Renderer {
             cb: Framebuffer::new(width, height),
+            db: Framebuffer::new(width, height),
             draw_mode: DrawMode::REGULAR,
             screenspace_matrix: a,
         }
@@ -47,11 +49,14 @@ impl Renderer {
 
     pub fn set_fb_size(&mut self, width: u16, height: u16) {
         self.cb.resize(width, height, 0);
+        self.db.resize(width, height, 0.0);
         self.screenspace_matrix = calculate_screenspace_matrix(width as f32, height as f32);
     }
 
-    pub fn clear_color(&mut self, new_color: u32) {
+    pub fn clear_framebuffer(&mut self, new_color: u32) {
+        // TODO: Allow specifying which to clear
         self.cb.fill(new_color);
+        self.db.fill(1.0);
     }
 
     pub fn set_draw_mode(&mut self, new_mode: DrawMode) {
@@ -99,11 +104,10 @@ impl Renderer {
                 .xy()
                 .as_ivec2();
 
-            // TODO: Depth buffer
-
             match self.draw_mode {
                 DrawMode::REGULAR => {
-                    self.plot_triangle(screen_p0, screen_p1, screen_p2, shader, &varyings);
+                    let clip_z = [clip_pos[0].z, clip_pos[1].z, clip_pos[2].z];
+                    self.plot_triangle(screen_p0, screen_p1, screen_p2, &clip_z, shader, &varyings);
                 }
                 DrawMode::WIREFRAME => {
                     self.plot_line(screen_p0, screen_p1, shader, &varyings[0], &varyings[1]);
@@ -141,6 +145,7 @@ impl Renderer {
         p0: IVec2,
         p1: IVec2,
         p2: IVec2,
+        clip_z: &[f32; 3],
         program: &mut S,
         program_inputs: &[VI; 3],
     ) {
@@ -173,6 +178,15 @@ impl Renderer {
                         a as f32 / area as f32,
                     );
 
+                    // Calculate this triangle's z depth at this fragment via barycentric coordinates
+                    // The perspective divide has already occured on these z values, which should
+                    // give us a proper non-linear depth buffer with high precision near the screen and
+                    // low precision towards the far plane.
+                    let z_depth =
+                        clip_z[0].interpolated(barycentric_coords, &clip_z[1], &clip_z[2]);
+
+                    // TODO: Consider early-z discard
+
                     // Run fragment shader
                     let interpolated = program_inputs[0].interpolated(
                         barycentric_coords,
@@ -181,7 +195,13 @@ impl Renderer {
                     );
                     let frag_output = program.fragment(interpolated);
                     let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
-                    self.cb.plot_pixel(x as u16, y as u16, fb_color);
+
+                    // We only update the buffers if the z test determines that this primitive is closer
+                    // than any other primitive we have processed so far.
+                    if z_depth < self.db.get_pixel(x as u16, y as u16) {
+                        self.db.plot_pixel(x as u16, y as u16, z_depth);
+                        self.cb.plot_pixel(x as u16, y as u16, fb_color);
+                    }
                 }
             }
         }
