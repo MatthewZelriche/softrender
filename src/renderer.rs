@@ -3,6 +3,7 @@ use crate::{
     shader::{Barycentric, Shader},
 };
 
+use arrayvec::ArrayVec;
 use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4, Vec4Swizzles};
 use unzip_array_of_tuple::unzip_array_of_tuple;
 
@@ -88,29 +89,17 @@ impl Renderer {
             // the vertices.
             // TODO: Interpolate vertex data
             // Clipping box has 6 sides, have to test for each side
-            let mut output_verts = [
-                clip_pos[0],
-                clip_pos[1],
-                clip_pos[2],
-                Vec4::ZERO,
-                Vec4::ZERO,
-                Vec4::ZERO,
-            ];
-            let mut in_vert_count;
-            let mut out_vert_count = 3;
-            let mut out_next_idx;
+            let mut output_verts = ArrayVec::<_, 6>::new();
+            output_verts.push(clip_pos[0]);
+            output_verts.push(clip_pos[1]);
+            output_verts.push(clip_pos[2]);
 
             let mut point_axis = 2; // Start at last index so we can use modular arithmetic to
                                     // "wrap around" to zero on the first iteration
             for i in 0..6 {
                 // Set input verts to the output verts of the previous plane iter
-                let input_verts = output_verts;
-                in_vert_count = out_vert_count;
-
-                // Clear the output vertices
-                output_verts = [Vec4::ZERO; 6];
-                out_vert_count = 0;
-                out_next_idx = 0;
+                let input_verts = output_verts.clone();
+                output_verts.clear();
 
                 // Our clipping planes are represented by an axis and the sign of w, determine the plane
                 // we are currently operating on
@@ -124,9 +113,12 @@ impl Renderer {
                     |w: f32, x: f32| x <= w
                 };
 
-                for vert_idx in 0i8..in_vert_count {
+                // idx must be i8 as we are utilizing modulus arithmetic on negative values to wrap the
+                // index for input_verts
+                for vert_idx in 0i8..input_verts.len() as i8 {
                     let curr = input_verts[vert_idx as usize];
-                    let prev = input_verts[(vert_idx - 1).rem_euclid(in_vert_count) as usize];
+                    let prev =
+                        input_verts[(vert_idx - 1).rem_euclid(input_verts.len() as i8) as usize];
 
                     // Compute intersection between curr, previous, and our clipping plane.
                     let interp_val = (w_sign * curr[3] - curr[point_axis])
@@ -139,20 +131,14 @@ impl Renderer {
                         if !op(prev[3], prev[point_axis]) {
                             // Current is inside, but prev is outside, so we have a verified
                             // intersection on this plane. This is our new clipped vertex for this line!
-                            output_verts[out_next_idx] = intersection;
-                            out_next_idx += 1;
-                            out_vert_count += 1;
+                            output_verts.push(intersection);
                         }
                         // Both points are inside this clipping plane
-                        output_verts[out_next_idx] = curr;
-                        out_next_idx += 1;
-                        out_vert_count += 1;
+                        output_verts.push(curr);
                     } else if op(prev[3], prev[point_axis]) {
                         // Current point is outside, but prev is inside. We add the clipped point
                         // as normal, but don't add curr.
-                        output_verts[out_next_idx] = intersection;
-                        out_next_idx += 1;
-                        out_vert_count += 1;
+                        output_verts.push(intersection);
                     } else {
                         // Both points lay outside this clipping plane, we can discard this line entirely
                     }
@@ -162,16 +148,14 @@ impl Renderer {
             // Build our triangle fan out of the new vertices
             // Six vertices can always be made into a triangle fan of at most 4 triangles
             // We also must have at least 1 triangle
-            if out_vert_count == 0 {
+            if output_verts.is_empty() {
                 // Triangle was entirely outside the viewing area, discard
                 continue;
             }
-            let triangle_count = out_vert_count - 2;
-            let mut final_tris = [[Vec4::ZERO; 3]; 4];
+            let triangle_count = output_verts.len() - 2;
+            let mut final_tris = ArrayVec::<[Vec4; 3], 4>::new();
             for j in 0..triangle_count as usize {
-                final_tris[j][0] = output_verts[0];
-                final_tris[j][1] = output_verts[j + 1];
-                final_tris[j][2] = output_verts[j + 2];
+                final_tris.push([output_verts[0], output_verts[j + 1], output_verts[j + 2]]);
             }
 
             // Now we iterate over every triangle in our fan for the rest of this original user primitive
