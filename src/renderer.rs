@@ -3,7 +3,7 @@ use crate::{
     shader::{Barycentric, Shader},
 };
 
-use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4Swizzles};
+use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4, Vec4Swizzles};
 use unzip_array_of_tuple::unzip_array_of_tuple;
 
 struct BoundingBox2D {
@@ -84,8 +84,8 @@ impl Renderer {
                 shader.vertex(&vbo[v2_idx]),
             ]);
 
-            // After the vertex shader is run, our vertices now exist in clip space.
-            // TODO: Clip vertices here.
+            // After the vertex shader is run, our vertices now exist in clip space. It's time to clip
+            // the vertices.
             // TODO: Interpolate vertex data
             // Clipping box has 6 sides, have to test for each side
             let mut output_verts = [
@@ -117,7 +117,7 @@ impl Renderer {
                 let w_sign;
                 let op = if i % 2 == 0 {
                     w_sign = -1.0;
-                    point_axis = (point_axis + 1) % 3; // We've handled both cases for a single axis, inc
+                    point_axis = (point_axis + 1) % 3; // We've handled -,+ for a single axis, increment
                     |w: f32, x: f32| -w <= x
                 } else {
                     w_sign = 1.0;
@@ -159,42 +159,56 @@ impl Renderer {
                 }
             }
 
-            // At this point we can have up to six vertices.
-            // TODO: Build triangle fan
-            if out_vert_count != 3 {
-                panic!("aaa");
+            // Build our triangle fan out of the new vertices
+            // Six vertices can always be made into a triangle fan of at most 4 triangles
+            // We also must have at least 1 triangle
+            if out_vert_count == 0 {
+                // Triangle was entirely outside the viewing area, discard
+                continue;
             }
-            println!("{:?}", output_verts);
-            clip_pos[0] = output_verts[0];
-            clip_pos[1] = output_verts[1];
-            clip_pos[2] = output_verts[2];
+            let triangle_count = out_vert_count - 2;
+            let mut final_tris = [[Vec4::ZERO; 3]; 4];
+            for j in 0..triangle_count as usize {
+                final_tris[j][0] = output_verts[0];
+                final_tris[j][1] = output_verts[j + 1];
+                final_tris[j][2] = output_verts[j + 2];
+            }
 
-            // After clipping the vertices, we can now perform a perspective divide
-            clip_pos[0] = (clip_pos[0].xyz() / clip_pos[0].w).extend(clip_pos[0].w);
-            clip_pos[1] = (clip_pos[1].xyz() / clip_pos[1].w).extend(clip_pos[1].w);
-            clip_pos[2] = (clip_pos[2].xyz() / clip_pos[2].w).extend(clip_pos[2].w);
+            // Now we iterate over every triangle in our fan for the rest of this original user primitive
+            for j in 0..triangle_count as usize {
+                clip_pos[0] = final_tris[j][0];
+                clip_pos[1] = final_tris[j][1];
+                clip_pos[2] = final_tris[j][2];
 
-            // Finally, convert from ndc to screenspace
-            // Homogenous component must be 1.0!
-            let screen_p0 = (self.screenspace_matrix * clip_pos[0].xyz().extend(1.0))
-                .xy()
-                .as_ivec2();
-            let screen_p1 = (self.screenspace_matrix * clip_pos[1].xyz().extend(1.0))
-                .xy()
-                .as_ivec2();
-            let screen_p2 = (self.screenspace_matrix * clip_pos[2].xyz().extend(1.0))
-                .xy()
-                .as_ivec2();
+                // After clipping the vertices, we can now perform a perspective divide
+                clip_pos[0] = (clip_pos[0].xyz() / clip_pos[0].w).extend(clip_pos[0].w);
+                clip_pos[1] = (clip_pos[1].xyz() / clip_pos[1].w).extend(clip_pos[1].w);
+                clip_pos[2] = (clip_pos[2].xyz() / clip_pos[2].w).extend(clip_pos[2].w);
 
-            match self.draw_mode {
-                DrawMode::REGULAR => {
-                    let clip_z = [clip_pos[0].z, clip_pos[1].z, clip_pos[2].z];
-                    self.plot_triangle(screen_p0, screen_p1, screen_p2, &clip_z, shader, &varyings);
-                }
-                DrawMode::WIREFRAME => {
-                    self.plot_line(screen_p0, screen_p1, shader, &varyings[0], &varyings[1]);
-                    self.plot_line(screen_p1, screen_p2, shader, &varyings[1], &varyings[2]);
-                    self.plot_line(screen_p2, screen_p0, shader, &varyings[2], &varyings[0]);
+                // Finally, convert from ndc to screenspace
+                // Homogenous component must be 1.0!
+                let screen_p0 = (self.screenspace_matrix * clip_pos[0].xyz().extend(1.0))
+                    .xy()
+                    .as_ivec2();
+                let screen_p1 = (self.screenspace_matrix * clip_pos[1].xyz().extend(1.0))
+                    .xy()
+                    .as_ivec2();
+                let screen_p2 = (self.screenspace_matrix * clip_pos[2].xyz().extend(1.0))
+                    .xy()
+                    .as_ivec2();
+
+                match self.draw_mode {
+                    DrawMode::REGULAR => {
+                        let clip_z = [clip_pos[0].z, clip_pos[1].z, clip_pos[2].z];
+                        self.plot_triangle(
+                            screen_p0, screen_p1, screen_p2, &clip_z, shader, &varyings,
+                        );
+                    }
+                    DrawMode::WIREFRAME => {
+                        self.plot_line(screen_p0, screen_p1, shader, &varyings[0], &varyings[1]);
+                        self.plot_line(screen_p1, screen_p2, shader, &varyings[1], &varyings[2]);
+                        self.plot_line(screen_p2, screen_p0, shader, &varyings[2], &varyings[0]);
+                    }
                 }
             }
         }
