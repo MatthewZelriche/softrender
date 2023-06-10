@@ -14,10 +14,15 @@ pub fn barycentric_impl(input: TokenStream) -> TokenStream {
     // First we construct the body of the impl, line-by-line, to simply recursively call
     // interpolated on every field it contains, using that same field in the other two
     // scalars provided (second and third)
-    let fields = data.fields.iter().map(|field| {
+    let fields_tri = data.fields.iter().map(|field| {
         let field_name = &field.ident;
         quote::quote!(
          #field_name: self.#field_name.interpolated(lambda, &second.#field_name, &third.#field_name))
+    });
+    let fields_line = data.fields.iter().map(|field| {
+        let field_name = &field.ident;
+        quote::quote!(
+         #field_name: self.#field_name.line_interpolated(lambda, &second.#field_name))
     });
 
     // Once all the individual recursive calls are constructed, we construct the impl itself,
@@ -27,7 +32,12 @@ pub fn barycentric_impl(input: TokenStream) -> TokenStream {
       impl Barycentric for #struct_name {
          fn interpolated(&self, lambda: glam::Vec3, second: &Self, third: &Self) -> Self {
             #struct_name {
-               #(#fields,)*
+               #(#fields_tri,)*
+            }
+         }
+         fn line_interpolated(&self, lambda: glam::Vec2, second: &Self) -> Self {
+            #struct_name {
+               #(#fields_line,)*
             }
          }
       }

@@ -1,10 +1,11 @@
 use crate::{
     fb::Framebuffer,
+    math::InverseLerp,
     shader::{Barycentric, Shader},
 };
 
 use arrayvec::ArrayVec;
-use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4, Vec4Swizzles};
+use glam::{vec4, IVec2, Mat4, Vec2, Vec2Swizzles, Vec3, Vec4, Vec4Swizzles};
 
 struct BoundingBox2D {
     origin: IVec2,
@@ -119,37 +120,27 @@ impl Renderer {
                         / ((w_sign * curr_pos[3] - curr_pos[point_axis])
                             - (w_sign * prev_pos[3] - prev_pos[point_axis]));
                     let intersection = curr_pos.lerp(prev_pos, interp_val);
+                    let intersect_interpolated = self.tri_barycentric_interpolate_edge(
+                        prev_pos.xy(),
+                        curr_pos.xy(),
+                        intersection.xy(),
+                        &input_verts[prev_idx].1,
+                        &input_verts[curr_idx].1,
+                    );
 
                     // Is the current point on the "inside" of this clipping plane?
                     if op(curr_pos[3], curr_pos[point_axis]) {
                         if !op(prev_pos[3], prev_pos[point_axis]) {
                             // Current is inside, but prev is outside, so we have a verified
                             // intersection on this plane. This is our new clipped vertex for this line!
-                            let barycentric_y = (intersection - prev_pos).xy().length()
-                                / (curr_pos - prev_pos).xy().length();
-                            let barycentric_coords =
-                                Vec3::new(1.0 - barycentric_y, barycentric_y, 0.0);
-                            let interpolated = input_verts[prev_idx].1.interpolated(
-                                barycentric_coords,
-                                &input_verts[curr_idx].1,
-                                &input_verts[curr_idx].1,
-                            );
-                            output_verts.push((intersection, interpolated));
+                            output_verts.push((intersection, intersect_interpolated));
                         }
                         // Both points are inside this clipping plane
                         output_verts.push((curr_pos, input_verts[curr_idx].1.clone()));
                     } else if op(prev_pos[3], prev_pos[point_axis]) {
                         // Current point is outside, but prev is inside. We add the clipped point
                         // as normal, but don't add curr.
-                        let barycentric_y = (intersection - prev_pos).xy().length()
-                            / (curr_pos - prev_pos).xy().length();
-                        let barycentric_coords = Vec3::new(1.0 - barycentric_y, barycentric_y, 0.0);
-                        let interpolated = input_verts[prev_idx].1.interpolated(
-                            barycentric_coords,
-                            &input_verts[curr_idx].1,
-                            &input_verts[curr_idx].1,
-                        );
-                        output_verts.push((intersection, interpolated));
+                        output_verts.push((intersection, intersect_interpolated));
                     } else {
                         // Both points lay outside this clipping plane, we can discard this line entirely
                     }
@@ -243,6 +234,19 @@ impl Renderer {
         // We've completed a drawcall into the framebuffer, present it to the user so they can
         // do whatever they need with it
         &self.cb
+    }
+
+    fn tri_barycentric_interpolate_edge<VI: Barycentric>(
+        &self,
+        from: Vec2,
+        to: Vec2,
+        point: Vec2,
+        attrib1: &VI,
+        attrib2: &VI,
+    ) -> VI {
+        let barycentric_y = from.inverse_lerp(to, point);
+        let barycentric_coords = Vec2::new(1.0 - barycentric_y, barycentric_y);
+        attrib1.line_interpolated(barycentric_coords, &attrib2)
     }
 
     fn tri_bounding_box(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> BoundingBox2D {
@@ -382,13 +386,13 @@ impl Renderer {
             // Barycentric coordinates for a line: treat it like an edge on a triangle
             // Basically, we just lerp between x and y, and set z to 0
             let pixel = IVec2::new(x, y);
-            let barycentric_y =
-                (pixel - p1_orig).as_vec2().length() / (p2_orig - p1_orig).as_vec2().length();
-            let barycentric_coords = Vec3::new(1.0 - barycentric_y, barycentric_y, 0.0);
-
-            // We pass p2_input again for the third argument because we know it will be zeroes out
-            // by barycentric z coordinate, so its value is irrelevant
-            let interpolated = p1_input.interpolated(barycentric_coords, p2_input, p2_input);
+            let interpolated = self.tri_barycentric_interpolate_edge(
+                p1_orig.as_vec2(),
+                p2_orig.as_vec2(),
+                pixel.as_vec2(),
+                p1_input,
+                p2_input,
+            );
 
             let frag_output = program.fragment(interpolated);
             let fb_color = frag_output.z | (frag_output.y << 8) | (frag_output.x << 16);
