@@ -2,6 +2,11 @@ use std::ops::{Div, Mul, Sub};
 
 use glam::{Vec2, Vec4};
 
+pub struct ClipPlane {
+    pub sign: f32,
+    pub axis: usize,
+}
+
 pub trait InverseLerp<T: Mul + Sub + Div> {
     fn inverse_lerp(&self, to: T, point: T) -> f32;
 }

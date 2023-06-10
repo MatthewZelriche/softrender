@@ -1,6 +1,6 @@
 use crate::{
     fb::Framebuffer,
-    math::InverseLerp,
+    math::{ClipPlane, InverseLerp},
     shader::{Barycentric, Shader},
 };
 
@@ -79,100 +79,15 @@ impl Renderer {
             let v1_idx = ibo[i + 1] as usize;
             let v2_idx = ibo[i + 2] as usize;
 
-            // After the vertex shader is run, our vertices now exist in clip space. It's time to clip
-            // the vertices.
-            // TODO: Interpolate vertex data
-            // Clipping box has 6 sides, have to test for each side
-            let mut output_verts = ArrayVec::<_, 6>::new();
-            output_verts.push(shader.vertex(&vbo[v0_idx]));
-            output_verts.push(shader.vertex(&vbo[v1_idx]));
-            output_verts.push(shader.vertex(&vbo[v2_idx]));
-
-            let mut point_axis = 2; // Start at last index so we can use modular arithmetic to
-                                    // "wrap around" to zero on the first iteration
-            for i in 0..6 {
-                // Set input verts to the output verts of the previous plane iter
-                let input_verts = output_verts.clone();
-                output_verts.clear();
-
-                // Our clipping planes are represented by an axis and the sign of w, determine the plane
-                // we are currently operating on
-                let w_sign;
-                let op = if i % 2 == 0 {
-                    w_sign = -1.0;
-                    point_axis = (point_axis + 1) % 3; // We've handled -,+ for a single axis, increment
-                    |w: f32, x: f32| -w <= x
-                } else {
-                    w_sign = 1.0;
-                    |w: f32, x: f32| x <= w
-                };
-
-                // idx must be i8 as we are utilizing modulus arithmetic on negative values to wrap the
-                // index for input_verts
-                for vert_idx in 0i8..input_verts.len() as i8 {
-                    let curr_idx = vert_idx as usize;
-                    let prev_idx = (vert_idx - 1).rem_euclid(input_verts.len() as i8) as usize;
-                    let curr_pos = input_verts[curr_idx].0;
-                    let prev_pos = input_verts[prev_idx].0;
-
-                    // Compute intersection between curr, previous, and our clipping plane.
-                    let interp_val = (w_sign * curr_pos[3] - curr_pos[point_axis])
-                        / ((w_sign * curr_pos[3] - curr_pos[point_axis])
-                            - (w_sign * prev_pos[3] - prev_pos[point_axis]));
-                    let intersection = curr_pos.lerp(prev_pos, interp_val);
-                    let intersect_interpolated = self.tri_barycentric_interpolate_edge(
-                        prev_pos.xy(),
-                        curr_pos.xy(),
-                        intersection.xy(),
-                        &input_verts[prev_idx].1,
-                        &input_verts[curr_idx].1,
-                    );
-
-                    // Is the current point on the "inside" of this clipping plane?
-                    if op(curr_pos[3], curr_pos[point_axis]) {
-                        if !op(prev_pos[3], prev_pos[point_axis]) {
-                            // Current is inside, but prev is outside, so we have a verified
-                            // intersection on this plane. This is our new clipped vertex for this line!
-                            output_verts.push((intersection, intersect_interpolated));
-                        }
-                        // Both points are inside this clipping plane
-                        output_verts.push((curr_pos, input_verts[curr_idx].1.clone()));
-                    } else if op(prev_pos[3], prev_pos[point_axis]) {
-                        // Current point is outside, but prev is inside. We add the clipped point
-                        // as normal, but don't add curr.
-                        output_verts.push((intersection, intersect_interpolated));
-                    } else {
-                        // Both points lay outside this clipping plane, we can discard this line entirely
-                    }
-                }
-            }
-
-            // Build our triangle fan out of the new vertices
-            // Six vertices can always be made into a triangle fan of at most 4 triangles
-            // We also must have at least 1 triangle
-            if output_verts.is_empty() {
-                // Triangle was entirely outside the viewing area, discard
-                continue;
-            }
-            let triangle_count = output_verts.len() - 2;
-            let mut final_tris = ArrayVec::<([Vec4; 3], [VI; 3]), 4>::new();
-            for j in 0..triangle_count as usize {
-                final_tris.push((
-                    [
-                        output_verts[0].0,
-                        output_verts[j + 1].0,
-                        output_verts[j + 2].0,
-                    ],
-                    [
-                        output_verts[0].1.clone(),
-                        output_verts[j + 1].1.clone(),
-                        output_verts[j + 2].1.clone(),
-                    ],
-                ));
-            }
+            // After the vertex shader is run, our vertices now exist in clip space.
+            let final_tris = self.clip_triangle(
+                shader.vertex(&vbo[v0_idx]),
+                shader.vertex(&vbo[v1_idx]),
+                shader.vertex(&vbo[v2_idx]),
+            );
 
             // Now we iterate over every triangle in our fan for the rest of this original user primitive
-            for j in 0..triangle_count as usize {
+            for j in 0..final_tris.len() as usize {
                 let mut clip_pos = [final_tris[j].0[0], final_tris[j].0[1], final_tris[j].0[2]];
 
                 // After clipping the vertices, we can now perform a perspective divide
@@ -236,6 +151,190 @@ impl Renderer {
         &self.cb
     }
 
+    /// Clips a triangle primitive against the viewing frustum, using the homogenous coordinate w
+    ///
+    /// This algorithm uses an adaptation of the Sutherland-Hodgman algorithm to clip a triangle primitive
+    /// against a viewing frustum generated by either a perspective or orthographic projection matrix.
+    /// Since the input vertices are in clip space, determining whether a vertex falls within the viewing
+    /// frustum can be efficiently calculated by checking if -w <= a <= w where a is the x, y, z components
+    /// of the vector's clip-space position.
+    /// When clipping occurs, the newly created vertex will receive properly interpolated attributes via
+    /// barycentric coordinates of the line segment it was contained in.
+    /// Clipping a triangle primitive can result in generating new vertices, resulting in a polygon with
+    /// a maximum of six vertices. If this occurs, the algorithm will triangulate the polygon by building
+    /// a triangle fan. As a result, a maximum of up to four triangles may be returned by this algorithm.
+    ///
+    /// # Arguments
+    ///
+    /// * v0 - A tuple containing the first vertex's (in counter-clockwise order) clip-space position
+    ///        and its vertex attributes.
+    /// * v1 - A tuple containing the second vertex's (in counter-clockwise order) clip-space position
+    ///        and its vertex attributes.
+    /// * v2 - A tuple containing the third vertex's (in counter-clockwise order) clip-space position
+    ///        and its vertex attributes.
+    ///
+    /// # Returns
+    ///
+    /// A fixed-length array containing up to four triangles.
+    fn clip_triangle<VI: Barycentric + Clone>(
+        &self,
+        v0: (Vec4, VI),
+        v1: (Vec4, VI),
+        v2: (Vec4, VI),
+    ) -> ArrayVec<([Vec4; 3], [VI; 3]), 4> {
+        let mut output_verts = ArrayVec::<_, 6>::new();
+        output_verts.push(v0);
+        output_verts.push(v1);
+        output_verts.push(v2);
+        let mut clip_plane = ClipPlane { sign: 1.0, axis: 2 };
+
+        // View frustum has 6 planes - left, right, top, bottom, near, far.
+        for clip_plane_idx in 0..6 {
+            // The input vertices for each new clip plane should consist of the output vertices
+            // of the previous iteration
+            let input_verts = output_verts.clone();
+            output_verts.clear();
+
+            // Our clipping planes are mathematically represented by two things: An axis (X, Y, Z), and the
+            // sign of the homogenous coordinate w, which tells us which plane we are testing for this axis.
+            // For example, left and right both have normal vectors aligned on the X axis, but the sign of w
+            // tells us which direction the normal vector is pointing (+X or -X).
+            let inside_clip_plane = if clip_plane_idx % 2 == 0 {
+                clip_plane.sign = -1.0;
+                clip_plane.axis = (clip_plane.axis + 1) % 3; // We've handled -,+ for a single axis,
+                                                             // move to next axis
+                |w: f32, x: f32| -w <= x
+            } else {
+                clip_plane.sign = 1.0;
+                |w: f32, x: f32| x <= w
+            };
+
+            // idx must be i8 as we are utilizing modulus arithmetic on negative values to wrap the
+            // index for input_verts
+            for vert_idx in 0i8..input_verts.len() as i8 {
+                // Sutherland-Hodgman algorithm clips a polygon by considering the line segments that make up
+                // its edges. We test each line segment making up this iteration of the polygon against
+                // the clipping plane, and generate a new vertex where the line intersects with the plane,
+                // if clipping is necessary
+                let curr_idx = vert_idx as usize;
+                let prev_idx = (vert_idx - 1).rem_euclid(input_verts.len() as i8) as usize;
+                let (curr_pos, _) = input_verts[curr_idx];
+                let (prev_pos, _) = input_verts[prev_idx];
+
+                if inside_clip_plane(curr_pos[3], curr_pos[clip_plane.axis]) {
+                    // Current point is inside the clip plane...
+                    if !inside_clip_plane(prev_pos[3], prev_pos[clip_plane.axis]) {
+                        // Current is inside, but prev is outside, so we have a verified
+                        // intersection on this plane. Drop the vertex outside the clip plane and generate
+                        // a new vertex directly at the intersection
+                        let clipped_vertex = self.compute_clipping_intersection(
+                            &input_verts[prev_idx],
+                            &input_verts[curr_idx],
+                            &clip_plane,
+                        );
+                        output_verts.push(clipped_vertex);
+                    }
+                    // Both points are inside this clipping plane, so we just have to push the current
+                    // vertex as-is. No clipping necessary.
+                    output_verts.push((curr_pos, input_verts[curr_idx].1.clone()));
+                } else if inside_clip_plane(prev_pos[3], prev_pos[clip_plane.axis]) {
+                    // Current point is outside, but prev is inside. We disregard curr and truncate
+                    // this line segment to prev -> intersection
+                    let clipped_vertex = self.compute_clipping_intersection(
+                        &input_verts[prev_idx],
+                        &input_verts[curr_idx],
+                        &clip_plane,
+                    );
+                    output_verts.push(clipped_vertex);
+                } else {
+                    // Both points lay outside this clipping plane, we can discard this line entirely
+                }
+            }
+        }
+
+        let mut final_tris = ArrayVec::<([Vec4; 3], [VI; 3]), 4>::new();
+        // If the Sutherland-Hodgman algorithm produced no vertices at all, the triangle was entirely
+        // outside the viewing frustum, so we can just return an empty array of 0 new triangles.
+        if output_verts.is_empty() {
+            return final_tris;
+        }
+        // We have generated a set of vertices representing the new clipped polygon. The last step
+        // is to build a triangle fan out of this polygon, since our rasterizer only works on triangles.
+        let triangle_count = output_verts.len() - 2;
+        for j in 0..triangle_count as usize {
+            final_tris.push((
+                [
+                    output_verts[0].0,
+                    output_verts[j + 1].0,
+                    output_verts[j + 2].0,
+                ],
+                [
+                    output_verts[0].1.clone(),
+                    output_verts[j + 1].1.clone(),
+                    output_verts[j + 2].1.clone(),
+                ],
+            ));
+        }
+
+        final_tris
+    }
+
+    /// Computes the interpolated intersection point between a line segment and a clipping plane
+    ///
+    /// If the given line segment does not actually intersect the plane, the vertex returned will be
+    /// extrapolated.
+    ///
+    /// # Arguments
+    ///
+    /// * from - The start vertex of the line segment, in clip space
+    /// * to - The end vertex of the line segment, in clip space
+    /// * plane - The clipping plane to test against
+    ///
+    /// # Returns
+    ///
+    /// A new vertex (with interpolated attributes) where the line segment intersects the clipping plane
+    fn compute_clipping_intersection<VI: Barycentric>(
+        &self,
+        from: &(Vec4, VI),
+        to: &(Vec4, VI),
+        plane: &ClipPlane,
+    ) -> (Vec4, VI) {
+        let (to_pos, to_attrib) = to;
+        let (from_pos, from_attrib) = from;
+
+        // Perform an inverse lerp that factors in the fact that we have not yet performed
+        // the perspective divide, due to the vertices being in clip space.
+        let interp_val = (plane.sign * to_pos[3] - to_pos[plane.axis])
+            / ((plane.sign * to_pos[3] - to_pos[plane.axis])
+                - (plane.sign * from_pos[3] - from_pos[plane.axis]));
+        // Find the clip space position where the line segment intersects with the plane
+        let intersect_pos = to_pos.lerp(*from_pos, interp_val);
+        // Perform a interpolation of the two vertices' attributes by using the line segment's
+        // barycentric coordinates
+        let intersect_attribs = self.tri_barycentric_interpolate_edge(
+            from_pos.xy(),
+            to_pos.xy(),
+            intersect_pos.xy(),
+            from_attrib,
+            to_attrib,
+        );
+
+        (intersect_pos, intersect_attribs)
+    }
+
+    /// Interpolates vertex attributes of a line using barycentric coordinates
+    ///
+    /// # Arguments
+    ///
+    /// * from - The start vertex of the line segment, in clip space, compressed to two dimensions
+    /// * to - The end vertex of the line segment, in clip space, compressed to two dimensions
+    /// * point - The clip space position to find barycentric coordinates for
+    /// * attrib1 - The vertex attributes belonging to the start of the line segment
+    /// * attrib2 - The vertex attributes belonging to the end of the line segment
+    ///
+    /// # Returns
+    ///
+    /// A new set of interpolated vertex attributess
     fn tri_barycentric_interpolate_edge<VI: Barycentric>(
         &self,
         from: Vec2,
