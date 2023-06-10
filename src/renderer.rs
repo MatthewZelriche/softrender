@@ -5,7 +5,6 @@ use crate::{
 
 use arrayvec::ArrayVec;
 use glam::{vec4, IVec2, Mat4, Vec2Swizzles, Vec3, Vec4, Vec4Swizzles};
-use unzip_array_of_tuple::unzip_array_of_tuple;
 
 struct BoundingBox2D {
     origin: IVec2,
@@ -64,7 +63,7 @@ impl Renderer {
         self.draw_mode = new_mode;
     }
 
-    pub fn draw<S: Shader<Vertex, VI>, Vertex, VI: Barycentric>(
+    pub fn draw<S: Shader<Vertex, VI>, Vertex, VI: Barycentric + Clone>(
         &mut self,
         shader: &mut S,
         vbo: &[Vertex],
@@ -79,20 +78,14 @@ impl Renderer {
             let v1_idx = ibo[i + 1] as usize;
             let v2_idx = ibo[i + 2] as usize;
 
-            let (mut clip_pos, varyings) = unzip_array_of_tuple([
-                shader.vertex(&vbo[v0_idx]),
-                shader.vertex(&vbo[v1_idx]),
-                shader.vertex(&vbo[v2_idx]),
-            ]);
-
             // After the vertex shader is run, our vertices now exist in clip space. It's time to clip
             // the vertices.
             // TODO: Interpolate vertex data
             // Clipping box has 6 sides, have to test for each side
             let mut output_verts = ArrayVec::<_, 6>::new();
-            output_verts.push(clip_pos[0]);
-            output_verts.push(clip_pos[1]);
-            output_verts.push(clip_pos[2]);
+            output_verts.push(shader.vertex(&vbo[v0_idx]));
+            output_verts.push(shader.vertex(&vbo[v1_idx]));
+            output_verts.push(shader.vertex(&vbo[v2_idx]));
 
             let mut point_axis = 2; // Start at last index so we can use modular arithmetic to
                                     // "wrap around" to zero on the first iteration
@@ -116,29 +109,47 @@ impl Renderer {
                 // idx must be i8 as we are utilizing modulus arithmetic on negative values to wrap the
                 // index for input_verts
                 for vert_idx in 0i8..input_verts.len() as i8 {
-                    let curr = input_verts[vert_idx as usize];
-                    let prev =
-                        input_verts[(vert_idx - 1).rem_euclid(input_verts.len() as i8) as usize];
+                    let curr_idx = vert_idx as usize;
+                    let prev_idx = (vert_idx - 1).rem_euclid(input_verts.len() as i8) as usize;
+                    let curr_pos = input_verts[curr_idx].0;
+                    let prev_pos = input_verts[prev_idx].0;
 
                     // Compute intersection between curr, previous, and our clipping plane.
-                    let interp_val = (w_sign * curr[3] - curr[point_axis])
-                        / ((w_sign * curr[3] - curr[point_axis])
-                            - (w_sign * prev[3] - prev[point_axis]));
-                    let intersection = curr.lerp(prev, interp_val);
+                    let interp_val = (w_sign * curr_pos[3] - curr_pos[point_axis])
+                        / ((w_sign * curr_pos[3] - curr_pos[point_axis])
+                            - (w_sign * prev_pos[3] - prev_pos[point_axis]));
+                    let intersection = curr_pos.lerp(prev_pos, interp_val);
 
                     // Is the current point on the "inside" of this clipping plane?
-                    if op(curr[3], curr[point_axis]) {
-                        if !op(prev[3], prev[point_axis]) {
+                    if op(curr_pos[3], curr_pos[point_axis]) {
+                        if !op(prev_pos[3], prev_pos[point_axis]) {
                             // Current is inside, but prev is outside, so we have a verified
                             // intersection on this plane. This is our new clipped vertex for this line!
-                            output_verts.push(intersection);
+                            let barycentric_y = (intersection - prev_pos).xy().length()
+                                / (curr_pos - prev_pos).xy().length();
+                            let barycentric_coords =
+                                Vec3::new(1.0 - barycentric_y, barycentric_y, 0.0);
+                            let interpolated = input_verts[prev_idx].1.interpolated(
+                                barycentric_coords,
+                                &input_verts[curr_idx].1,
+                                &input_verts[curr_idx].1,
+                            );
+                            output_verts.push((intersection, interpolated));
                         }
                         // Both points are inside this clipping plane
-                        output_verts.push(curr);
-                    } else if op(prev[3], prev[point_axis]) {
+                        output_verts.push((curr_pos, input_verts[curr_idx].1.clone()));
+                    } else if op(prev_pos[3], prev_pos[point_axis]) {
                         // Current point is outside, but prev is inside. We add the clipped point
                         // as normal, but don't add curr.
-                        output_verts.push(intersection);
+                        let barycentric_y = (intersection - prev_pos).xy().length()
+                            / (curr_pos - prev_pos).xy().length();
+                        let barycentric_coords = Vec3::new(1.0 - barycentric_y, barycentric_y, 0.0);
+                        let interpolated = input_verts[prev_idx].1.interpolated(
+                            barycentric_coords,
+                            &input_verts[curr_idx].1,
+                            &input_verts[curr_idx].1,
+                        );
+                        output_verts.push((intersection, interpolated));
                     } else {
                         // Both points lay outside this clipping plane, we can discard this line entirely
                     }
@@ -153,16 +164,25 @@ impl Renderer {
                 continue;
             }
             let triangle_count = output_verts.len() - 2;
-            let mut final_tris = ArrayVec::<[Vec4; 3], 4>::new();
+            let mut final_tris = ArrayVec::<([Vec4; 3], [VI; 3]), 4>::new();
             for j in 0..triangle_count as usize {
-                final_tris.push([output_verts[0], output_verts[j + 1], output_verts[j + 2]]);
+                final_tris.push((
+                    [
+                        output_verts[0].0,
+                        output_verts[j + 1].0,
+                        output_verts[j + 2].0,
+                    ],
+                    [
+                        output_verts[0].1.clone(),
+                        output_verts[j + 1].1.clone(),
+                        output_verts[j + 2].1.clone(),
+                    ],
+                ));
             }
 
             // Now we iterate over every triangle in our fan for the rest of this original user primitive
             for j in 0..triangle_count as usize {
-                clip_pos[0] = final_tris[j][0];
-                clip_pos[1] = final_tris[j][1];
-                clip_pos[2] = final_tris[j][2];
+                let mut clip_pos = [final_tris[j].0[0], final_tris[j].0[1], final_tris[j].0[2]];
 
                 // After clipping the vertices, we can now perform a perspective divide
                 clip_pos[0] = (clip_pos[0].xyz() / clip_pos[0].w).extend(clip_pos[0].w);
@@ -185,13 +205,36 @@ impl Renderer {
                     DrawMode::REGULAR => {
                         let clip_z = [clip_pos[0].z, clip_pos[1].z, clip_pos[2].z];
                         self.plot_triangle(
-                            screen_p0, screen_p1, screen_p2, &clip_z, shader, &varyings,
+                            screen_p0,
+                            screen_p1,
+                            screen_p2,
+                            &clip_z,
+                            shader,
+                            &final_tris[j].1,
                         );
                     }
                     DrawMode::WIREFRAME => {
-                        self.plot_line(screen_p0, screen_p1, shader, &varyings[0], &varyings[1]);
-                        self.plot_line(screen_p1, screen_p2, shader, &varyings[1], &varyings[2]);
-                        self.plot_line(screen_p2, screen_p0, shader, &varyings[2], &varyings[0]);
+                        self.plot_line(
+                            screen_p0,
+                            screen_p1,
+                            shader,
+                            &final_tris[j].1[0],
+                            &final_tris[j].1[1],
+                        );
+                        self.plot_line(
+                            screen_p1,
+                            screen_p2,
+                            shader,
+                            &final_tris[j].1[1],
+                            &final_tris[j].1[2],
+                        );
+                        self.plot_line(
+                            screen_p2,
+                            screen_p0,
+                            shader,
+                            &final_tris[j].1[2],
+                            &final_tris[j].1[0],
+                        );
                     }
                 }
             }
@@ -240,6 +283,9 @@ impl Renderer {
         for y in bb.origin.y..=bb.origin.y + bb.height {
             for x in bb.origin.x..=bb.origin.x + bb.width {
                 let pix = IVec2 { x, y };
+                // TODO: Consider guarding attempts to access memory outside the screen
+                // Currently, this should never happen due to clipping, but if we choose
+                // to use guard-band clipping it may become necessary.
 
                 // Geometrically, we attempt to divide our primitive into three "subtriangles" all converging
                 // at a given pixel. If all three subtriangles have a counter-clockwise winding order,
@@ -338,7 +384,6 @@ impl Renderer {
             let pixel = IVec2::new(x, y);
             let barycentric_y =
                 (pixel - p1_orig).as_vec2().length() / (p2_orig - p1_orig).as_vec2().length();
-
             let barycentric_coords = Vec3::new(1.0 - barycentric_y, barycentric_y, 0.0);
 
             // We pass p2_input again for the third argument because we know it will be zeroes out
