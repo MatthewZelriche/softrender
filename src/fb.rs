@@ -7,11 +7,7 @@ pub struct Framebuffer<T> {
 impl<T: Default + Copy> Framebuffer<T> {
     pub fn new(width: u16, height: u16) -> Self {
         let buf = vec![T::default(); width as usize * height as usize];
-        Framebuffer {
-            width: width,
-            height: height,
-            buf,
-        }
+        Framebuffer { width, height, buf }
     }
 
     pub fn fill(&mut self, value: T) {

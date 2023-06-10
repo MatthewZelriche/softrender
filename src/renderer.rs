@@ -87,7 +87,7 @@ impl Renderer {
             );
 
             // Now we iterate over every triangle in our fan for the rest of this original user primitive
-            for j in 0..final_tris.len() as usize {
+            for j in 0..final_tris.len() {
                 let mut clip_pos = [final_tris[j].0[0], final_tris[j].0[1], final_tris[j].0[2]];
 
                 // After clipping the vertices, we can now perform a perspective divide
@@ -261,7 +261,7 @@ impl Renderer {
         // We have generated a set of vertices representing the new clipped polygon. The last step
         // is to build a triangle fan out of this polygon, since our rasterizer only works on triangles.
         let triangle_count = output_verts.len() - 2;
-        for j in 0..triangle_count as usize {
+        for j in 0..triangle_count {
             final_tris.push((
                 [
                     output_verts[0].0,
@@ -345,7 +345,7 @@ impl Renderer {
     ) -> VI {
         let barycentric_y = from.inverse_lerp(to, point);
         let barycentric_coords = Vec2::new(1.0 - barycentric_y, barycentric_y);
-        attrib1.line_interpolated(barycentric_coords, &attrib2)
+        attrib1.line_interpolated(barycentric_coords, attrib2)
     }
 
     fn tri_bounding_box(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> BoundingBox2D {
@@ -401,11 +401,7 @@ impl Renderer {
 
                 if a >= 0.0 && b >= 0.0 && c >= 0.0 {
                     // Calculate barycentric coords for this pixel and inform the shader=
-                    let barycentric_coords = Vec3::new(
-                        b as f32 / area as f32,
-                        c as f32 / area as f32,
-                        a as f32 / area as f32,
-                    );
+                    let barycentric_coords = Vec3::new(b / area, c / area, a / area);
 
                     // Calculate this triangle's z depth at this fragment via barycentric coordinates
                     // The perspective divide has already occured on these z values, which should
