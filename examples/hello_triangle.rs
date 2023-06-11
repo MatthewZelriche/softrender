@@ -19,7 +19,7 @@ use winit::{
 // fragment shader. Vertex outputs will be interpolated on a per-fragment basis by the rendering pipeline,
 // using barycentric coordinates.
 // These structs MUST derive the Barycentric trait.
-#[derive(Barycentric)]
+#[derive(Clone, Barycentric)]
 struct VertexOut {
     color: glam::Vec3,
 }
