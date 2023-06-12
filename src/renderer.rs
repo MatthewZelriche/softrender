@@ -359,6 +359,8 @@ impl Renderer {
 
     // Calculate edge equations with subpixel precision
     #[inline(always)]
+    fn tri_area_signed_squared(&self, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
+        (p1 - p0).perp_dot(p2 - p0)
     }
 
     fn plot_triangle<S: Shader<V, VI>, V, VI: Barycentric>(
@@ -372,15 +374,36 @@ impl Renderer {
     ) {
         // Ignore colinear triangles
         // Why is this necessary? Why would a mesh ever have colinear/degenerate triangles?
-        let area = self.tri_area_signed(p0, p1, p2);
+        let area = self.tri_area_signed_squared(p0, p1, p2);
         if area == 0.0 {
             return;
         }
 
         let bb = self.tri_bounding_box(p0.as_ivec2(), p1.as_ivec2(), p2.as_ivec2());
+
+        // Determine the starting non-normalized barycentric values of our pixel iterations, in this case,
+        // the bottom left corner of the triangle's bounding box
+        let start_pix = Vec2 {
+            x: bb.origin.x as f32,
+            y: bb.origin.y as f32,
+        };
+        let dxa = p0.x - p1.x;
+        let dya = p0.y - p1.y;
+        let mut efa = self.tri_area_signed_squared(p0, p1, start_pix);
+        let dxb = p1.x - p2.x;
+        let dyb = p1.y - p2.y;
+        let mut efb = self.tri_area_signed_squared(p1, p2, start_pix);
+        let dxc = p2.x - p0.x;
+        let dyc = p2.y - p0.y;
+        let mut efc = self.tri_area_signed_squared(p2, p0, start_pix);
+
         for y in bb.origin.y..=bb.origin.y + bb.height {
+            // Save the result of our edge function at the start of every row
+            // for when we need to increment up a column
+            let saved_efa = efa;
+            let saved_efb = efb;
+            let saved_efc = efc;
             for x in bb.origin.x..=bb.origin.x + bb.width {
-                let pix = IVec2 { x, y };
                 // TODO: Consider guarding attempts to access memory outside the screen
                 // Currently, this should never happen due to clipping, but if we choose
                 // to use guard-band clipping it may become necessary.
@@ -390,13 +413,9 @@ impl Renderer {
                 // then the areas of all three triangles will be positive and this means the pixel lies
                 // within the primitive. If any of the subtriangle areas are negative, the winding order
                 // for that subtriangle is positive and the pixel must lie outside our primitive.
-                let a = self.tri_area_signed(p0, p1, pix.as_vec2());
-                let b = self.tri_area_signed(p1, p2, pix.as_vec2());
-                let c = self.tri_area_signed(p2, p0, pix.as_vec2());
-
-                if a >= 0.0 && b >= 0.0 && c >= 0.0 {
-                    // Calculate barycentric coords for this pixel and inform the shader=
-                    let barycentric_coords = Vec3::new(b / area, c / area, a / area);
+                if efa >= 0.0 && efb >= 0.0 && efc >= 0.0 {
+                    // Normalize the given barycentric coordinate values
+                    let barycentric_coords = Vec3::new(efb, efc, efa) / area;
 
                     // Calculate this triangle's z depth at this fragment via barycentric coordinates
                     // The perspective divide has already occured on these z values, which should
@@ -423,7 +442,16 @@ impl Renderer {
                         self.cb.plot_pixel(x as u16, y as u16, fb_color);
                     }
                 }
+                efa += dya;
+                efb += dyb;
+                efc += dyc;
             }
+            efa = saved_efa;
+            efb = saved_efb;
+            efc = saved_efc;
+            efa -= dxa;
+            efb -= dxb;
+            efc -= dxc;
         }
     }
 
