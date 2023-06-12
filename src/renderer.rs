@@ -97,15 +97,9 @@ impl Renderer {
 
                 // Finally, convert from ndc to screenspace
                 // Homogenous component must be 1.0!
-                let screen_p0 = (self.screenspace_matrix * clip_pos[0].xyz().extend(1.0))
-                    .xy()
-                    .as_ivec2();
-                let screen_p1 = (self.screenspace_matrix * clip_pos[1].xyz().extend(1.0))
-                    .xy()
-                    .as_ivec2();
-                let screen_p2 = (self.screenspace_matrix * clip_pos[2].xyz().extend(1.0))
-                    .xy()
-                    .as_ivec2();
+                let screen_p0 = (self.screenspace_matrix * clip_pos[0].xyz().extend(1.0)).xy();
+                let screen_p1 = (self.screenspace_matrix * clip_pos[1].xyz().extend(1.0)).xy();
+                let screen_p2 = (self.screenspace_matrix * clip_pos[2].xyz().extend(1.0)).xy();
 
                 match self.draw_mode {
                     DrawMode::REGULAR => {
@@ -344,7 +338,8 @@ impl Renderer {
         attrib2: &VI,
     ) -> VI {
         let barycentric_y = from.inverse_lerp(to, point);
-        let barycentric_coords = Vec2::new(1.0 - barycentric_y, barycentric_y);
+        let mut barycentric_coords = Vec2::new(1.0 - barycentric_y, barycentric_y);
+        barycentric_coords = barycentric_coords.clamp(Vec2::ZERO, Vec2::new(1.0, 1.0));
         attrib1.line_interpolated(barycentric_coords, attrib2)
     }
 
@@ -362,15 +357,16 @@ impl Renderer {
         }
     }
 
-    fn tri_area_signed(&self, p0: IVec2, p1: IVec2, p2: IVec2) -> f32 {
+    // Calculate edge equations with subpixel precision
+    fn tri_area_signed(&self, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
         (p1 - p0).perp_dot(p2 - p0) as f32 / 2.0
     }
 
     fn plot_triangle<S: Shader<V, VI>, V, VI: Barycentric>(
         &mut self,
-        p0: IVec2,
-        p1: IVec2,
-        p2: IVec2,
+        p0: Vec2,
+        p1: Vec2,
+        p2: Vec2,
         clip_z: &[f32; 3],
         program: &mut S,
         program_inputs: &[VI; 3],
@@ -382,7 +378,7 @@ impl Renderer {
             return;
         }
 
-        let bb = self.tri_bounding_box(p0, p1, p2);
+        let bb = self.tri_bounding_box(p0.as_ivec2(), p1.as_ivec2(), p2.as_ivec2());
         for y in bb.origin.y..=bb.origin.y + bb.height {
             for x in bb.origin.x..=bb.origin.x + bb.width {
                 let pix = IVec2 { x, y };
@@ -395,9 +391,9 @@ impl Renderer {
                 // then the areas of all three triangles will be positive and this means the pixel lies
                 // within the primitive. If any of the subtriangle areas are negative, the winding order
                 // for that subtriangle is positive and the pixel must lie outside our primitive.
-                let a = self.tri_area_signed(p0, p1, pix);
-                let b = self.tri_area_signed(p1, p2, pix);
-                let c = self.tri_area_signed(p2, p0, pix);
+                let a = self.tri_area_signed(p0, p1, pix.as_vec2());
+                let b = self.tri_area_signed(p1, p2, pix.as_vec2());
+                let c = self.tri_area_signed(p2, p0, pix.as_vec2());
 
                 if a >= 0.0 && b >= 0.0 && c >= 0.0 {
                     // Calculate barycentric coords for this pixel and inform the shader=
@@ -434,12 +430,13 @@ impl Renderer {
 
     fn plot_line<S: Shader<V, VI>, V, VI: Barycentric>(
         &mut self,
-        mut p1: IVec2,
-        mut p2: IVec2,
+        mut p1: Vec2,
+        mut p2: Vec2,
         program: &S,
         p1_input: &VI,
         p2_input: &VI,
     ) {
+        // TODO: This line algorithm doesn't seem to handle subpixel precision correctly.
         // Skip points
         if p1 == p2 {
             // TODO: What should we really do to handle this?
@@ -475,15 +472,15 @@ impl Renderer {
 
         // Whether we increment or decrement the screen-space y coordinate depends on the sign of
         // the line's dy. This is checked ahead of time to avoid an additional branch in the for loop.
-        let sign = if dy >= 0 { 1 } else { -1 };
+        let sign = if dy >= 0.0 { 1.0 } else { -1.0 };
 
-        for x in p1.x..p2.x {
+        for x in p1.x as i32..p2.x as i32 {
             // Barycentric coordinates for a line: treat it like an edge on a triangle
             // Basically, we just lerp between x and y, and set z to 0
-            let pixel = IVec2::new(x, y);
+            let pixel = IVec2::new(x as i32, y as i32);
             let interpolated = self.tri_barycentric_interpolate_edge(
-                p1_orig.as_vec2(),
-                p2_orig.as_vec2(),
+                p1_orig,
+                p2_orig,
                 pixel.as_vec2(),
                 p1_input,
                 p2_input,
@@ -499,7 +496,7 @@ impl Renderer {
                 self.cb.plot_pixel(x as u16, y as u16, fb_color);
             }
 
-            if eps >= 0 {
+            if eps >= 0.0 {
                 y += sign;
 
                 eps -= dx;
