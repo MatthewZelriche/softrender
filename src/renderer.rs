@@ -358,8 +358,7 @@ impl Renderer {
     }
 
     // Calculate edge equations with subpixel precision
-    fn tri_area_signed(&self, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
-        (p1 - p0).perp_dot(p2 - p0) as f32 / 2.0
+    #[inline(always)]
     }
 
     fn plot_triangle<S: Shader<V, VI>, V, VI: Barycentric>(
