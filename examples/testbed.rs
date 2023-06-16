@@ -5,16 +5,19 @@ use glam::{Affine3A, Mat4, UVec3, Vec2, Vec3};
 use image::{open, RgbImage};
 use softbuffer::GraphicsContext;
 use std::iter::zip;
+use util::camera::Camera;
 use winit::dpi::LogicalSize;
-use winit::event::{Event, WindowEvent};
+use winit::event::{DeviceEvent, ElementState, Event, VirtualKeyCode, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::platform::run_return::EventLoopExtRunReturn;
-use winit::window::WindowBuilder;
+use winit::window::{CursorGrabMode, WindowBuilder};
 
 use softrender::{
     renderer::Renderer,
     shader::{Barycentric, Shader},
 };
+
+mod util;
 
 #[derive(Clone, Barycentric)]
 struct VertexOut {
@@ -122,7 +125,7 @@ fn main() {
 
     let window_size = window.inner_size();
     let mut renderer = Renderer::new(window_size.width as u16, window_size.height as u16);
-    let fov = 90.0;
+    let fov = 60.0;
 
     let mut shader = MyShader {
         proj_mat: Mat4::perspective_rh(
@@ -131,15 +134,28 @@ fn main() {
             0.1,
             5.0,
         ),
-        model_mat: Affine3A::from_translation(Vec3::new(0.0, 0.0, -1.5))
+        model_mat: Affine3A::from_translation(Vec3::new(0.0, 0.0, -3.5))
             * Affine3A::from_rotation_y(f32::to_radians(30.0)),
         light_pos: Vec3::new(0.0, 0.0, 5.0),
         texture: open("african_head_diffuse.tga").unwrap().into_rgb8(),
     };
 
+    let mut cam = Camera::new(
+        f32::to_radians(fov),
+        window_size.width as f32 / window_size.height as f32,
+        0.1,
+        50.0,
+        Vec3::new(0.0, 0.0, 0.0),
+    );
+
     // Performance counter vars
     let mut frames = 0;
     let mut total = 0.0;
+
+    let mut is_pressed = [false; 4];
+    let mut frame_delta = 1.0 / 100.0;
+
+    window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
 
     event_loop.run_return(|event, _, cf| {
         cf.set_poll();
@@ -159,10 +175,46 @@ fn main() {
                         5.0,
                     );
                 }
+                WindowEvent::KeyboardInput { input, .. } => match input.virtual_keycode {
+                    Some(keycode) => match keycode {
+                        VirtualKeyCode::W => is_pressed[0] = input.state == ElementState::Pressed,
+                        VirtualKeyCode::S => is_pressed[1] = input.state == ElementState::Pressed,
+                        VirtualKeyCode::A => is_pressed[2] = input.state == ElementState::Pressed,
+                        VirtualKeyCode::D => is_pressed[3] = input.state == ElementState::Pressed,
+                        _ => (),
+                    },
+                    None => (),
+                },
                 _ => (),
             },
 
+            Event::DeviceEvent {
+                event: DeviceEvent::MouseMotion { delta },
+                ..
+            } => {
+                let pitch_delta = delta.1 as f32 * frame_delta * 0.6;
+                let yaw_delta = delta.0 as f32 * frame_delta * 0.6;
+                cam.rotate(-pitch_delta as f32, -yaw_delta as f32);
+            }
+
             Event::MainEventsCleared => {
+                let mut move_amt = Vec2::ZERO;
+                if is_pressed[0] {
+                    move_amt.x += 1.0;
+                }
+                if is_pressed[1] {
+                    move_amt.x -= 1.0;
+                }
+                if is_pressed[2] {
+                    move_amt.y += 1.0;
+                }
+                if is_pressed[3] {
+                    move_amt.y -= 1.0;
+                }
+                move_amt = move_amt.normalize_or_zero() * 4.0 * frame_delta;
+                cam.move_cam(move_amt);
+                cam.tick();
+                shader.proj_mat = cam.view_projection_matrix();
                 let now = std::time::Instant::now();
 
                 renderer.clear_framebuffer(95 | 95 << 8 | 95 << 16);
@@ -175,6 +227,7 @@ fn main() {
 
                 // Calculate frametime.
                 let elapsed_time = now.elapsed().as_secs_f32();
+                frame_delta = elapsed_time;
                 total += elapsed_time;
                 frames += 1;
                 if total >= 5.0 {
