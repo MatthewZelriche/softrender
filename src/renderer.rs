@@ -372,12 +372,7 @@ impl Renderer {
         program: &mut S,
         program_inputs: &[VI; 3],
     ) {
-        // Ignore colinear triangles
-        // Why is this necessary? Why would a mesh ever have colinear/degenerate triangles?
         let area = self.tri_area_signed_squared(p0, p1, p2);
-        if area == 0.0 {
-            return;
-        }
 
         let bb = self.tri_bounding_box(p0.as_ivec2(), p1.as_ivec2(), p2.as_ivec2());
 
