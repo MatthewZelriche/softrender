@@ -153,7 +153,7 @@ fn main() {
     let mut total = 0.0;
 
     let mut is_pressed = [false; 4];
-    let mut frame_delta = 1.0 / 100.0;
+    let mut delta_time = 1.0 / 60.0;
 
     window.set_cursor_grab(CursorGrabMode::Confined).unwrap();
 
@@ -192,8 +192,8 @@ fn main() {
                 event: DeviceEvent::MouseMotion { delta },
                 ..
             } => {
-                let pitch_delta = delta.1 as f32 * frame_delta * 0.6;
-                let yaw_delta = delta.0 as f32 * frame_delta * 0.6;
+                let pitch_delta = delta.1 as f32 * 0.005;
+                let yaw_delta = delta.0 as f32 * 0.005;
                 cam.rotate(-pitch_delta as f32, -yaw_delta as f32);
             }
 
@@ -211,7 +211,7 @@ fn main() {
                 if is_pressed[3] {
                     move_amt.y -= 1.0;
                 }
-                move_amt = move_amt.normalize_or_zero() * 4.0 * frame_delta;
+                move_amt = move_amt.normalize_or_zero() * 4.0 * delta_time;
                 cam.move_cam(move_amt);
                 cam.tick();
                 shader.proj_mat = cam.view_projection_matrix();
@@ -227,7 +227,7 @@ fn main() {
 
                 // Calculate frametime.
                 let elapsed_time = now.elapsed().as_secs_f32();
-                frame_delta = elapsed_time;
+                delta_time = elapsed_time;
                 total += elapsed_time;
                 frames += 1;
                 if total >= 5.0 {
