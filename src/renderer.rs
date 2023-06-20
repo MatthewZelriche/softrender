@@ -103,14 +103,11 @@ impl Renderer {
 
                 match self.draw_mode {
                     DrawMode::REGULAR => {
-                        let clip_z = [clip_pos[0].z, clip_pos[1].z, clip_pos[2].z];
-                        let clip_w = [clip_pos[0].w, clip_pos[1].w, clip_pos[2].w];
                         self.plot_triangle(
                             screen_p0,
                             screen_p1,
                             screen_p2,
-                            &clip_z,
-                            &clip_w,
+                            &clip_pos,
                             shader,
                             &final_tris[j].1,
                         );
@@ -370,8 +367,7 @@ impl Renderer {
         p0: Vec2,
         p1: Vec2,
         p2: Vec2,
-        clip_z: &[f32; 3],
-        clip_w: &[f32; 3],
+        clip_pos: &[Vec4; 3],
         program: &mut S,
         program_inputs: &[VI; 3],
     ) {
@@ -395,7 +391,11 @@ impl Renderer {
         let dyc = p2.y - p0.y;
         let mut efc = self.tri_area_signed_squared(p2, p0, start_pix);
 
-        let clip_w_inv = Vec3::new(1.0 / clip_w[0], 1.0 / clip_w[1], 1.0 / clip_w[2]);
+        let clip_w_inv = Vec3::new(
+            1.0 / clip_pos[0].w,
+            1.0 / clip_pos[1].w,
+            1.0 / clip_pos[2].w,
+        );
 
         for y in bb.origin.y..=bb.origin.y + bb.height {
             // Save the result of our edge function at the start of every row
@@ -429,8 +429,11 @@ impl Renderer {
                     // The perspective divide has already occured on these z values, which should
                     // give us a proper non-linear depth buffer with high precision near the screen and
                     // low precision towards the far plane.
-                    let z_depth =
-                        clip_z[0].interpolated(barycentric_coords, &clip_z[1], &clip_z[2]);
+                    let z_depth = clip_pos[0].z.interpolated(
+                        barycentric_coords,
+                        &clip_pos[1].z,
+                        &clip_pos[2].z,
+                    );
 
                     // TODO: Consider early-z discard
 
@@ -512,7 +515,7 @@ impl Renderer {
         for x in p1.x as i32..p2.x as i32 {
             // Barycentric coordinates for a line: treat it like an edge on a triangle
             // Basically, we just lerp between x and y, and set z to 0
-            let pixel = IVec2::new(x as i32, y as i32);
+            let pixel = IVec2::new(x, y as i32);
             let interpolated = self.tri_barycentric_interpolate_edge(
                 p1_orig,
                 p2_orig,
