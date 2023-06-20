@@ -104,11 +104,13 @@ impl Renderer {
                 match self.draw_mode {
                     DrawMode::REGULAR => {
                         let clip_z = [clip_pos[0].z, clip_pos[1].z, clip_pos[2].z];
+                        let clip_w = [clip_pos[0].w, clip_pos[1].w, clip_pos[2].w];
                         self.plot_triangle(
                             screen_p0,
                             screen_p1,
                             screen_p2,
                             &clip_z,
+                            &clip_w,
                             shader,
                             &final_tris[j].1,
                         );
@@ -369,6 +371,7 @@ impl Renderer {
         p1: Vec2,
         p2: Vec2,
         clip_z: &[f32; 3],
+        clip_w: &[f32; 3],
         program: &mut S,
         program_inputs: &[VI; 3],
     ) {
@@ -392,6 +395,8 @@ impl Renderer {
         let dyc = p2.y - p0.y;
         let mut efc = self.tri_area_signed_squared(p2, p0, start_pix);
 
+        let clip_w_inv = Vec3::new(1.0 / clip_w[0], 1.0 / clip_w[1], 1.0 / clip_w[2]);
+
         for y in bb.origin.y..=bb.origin.y + bb.height {
             // Save the result of our edge function at the start of every row
             // for when we need to increment up a column
@@ -409,8 +414,16 @@ impl Renderer {
                 // within the primitive. If any of the subtriangle areas are negative, the winding order
                 // for that subtriangle is positive and the pixel must lie outside our primitive.
                 if efa >= 0.0 && efb >= 0.0 && efc >= 0.0 {
-                    // Normalize the given barycentric coordinate values
+                    // Normalize the given barycentric coordinate values so they sum to 1
                     let barycentric_coords = Vec3::new(efb, efc, efa) / area;
+
+                    // Convert screen barycentric coords to worldspace for perspective correction
+                    let mut barycentric_worldspace = barycentric_coords * clip_w_inv;
+                    // Again, Barycentric coordinates need to sum to 1
+                    barycentric_worldspace = barycentric_worldspace
+                        / (barycentric_worldspace.x
+                            + barycentric_worldspace.y
+                            + barycentric_worldspace.z);
 
                     // Calculate this triangle's z depth at this fragment via barycentric coordinates
                     // The perspective divide has already occured on these z values, which should
@@ -423,7 +436,7 @@ impl Renderer {
 
                     // Run fragment shader
                     let interpolated = program_inputs[0].interpolated(
-                        barycentric_coords,
+                        barycentric_worldspace,
                         &program_inputs[1],
                         &program_inputs[2],
                     );
