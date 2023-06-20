@@ -18,7 +18,7 @@ impl Camera {
         let right_dir = Vec3::new(0.0, 1.0, 0.0).cross(look_dir).normalize();
         Camera {
             persp_matrix: Mat4::perspective_rh(fov, aspect_ratio, near, far),
-            view_matrix: Mat4::IDENTITY,
+            view_matrix: glam::Mat4::look_to_rh(world_pos, look_dir, Vec3::Y),
             world_pos,
             rot_matrix: Mat3A::from_euler(glam::EulerRot::YXZ, 0.0, 0.0, 0.0),
             look_dir,
