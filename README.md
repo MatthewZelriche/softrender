@@ -18,9 +18,9 @@ A simple toy software renderer written in Rust
 
 Construct a new `Renderer`: 
 
-`
+```rust
 let mut renderer = Renderer::new(800, 800);
-`
+```
 
 The `Renderer` is interacted with primarily through its `draw` function, where you pass the renderer your vertex data, index data, and your shader. To create your shader, first define a struct containing your vertex attributes, for example:
 
