@@ -24,7 +24,7 @@ let mut renderer = Renderer::new(800, 800);
 
 The `Renderer` is interacted with primarily through its `draw` function, where you pass the renderer your vertex data, index data, and your shader. To create your shader, first define a struct containing your vertex attributes, for example:
 
-```
+```rust
 struct Vertex {
     pos: glam::Vec3,
     color: glam::Vec3,
@@ -33,7 +33,7 @@ struct Vertex {
 
 This struct specifies the layout of the vertex data you pass to the `Renderer`. You must also define a struct containing the outputs of your vertex shader. These are the values that you want to be interpolated via barycentric coordinates inbetween the vertex and fragment shader stages: 
 
-```
+```rust
 #[derive(Clone, Barycentric)]
 struct VertexOut {
     color: glam::Vec3,
@@ -44,7 +44,7 @@ Note that you must specify the `Barycentric` derive macro on this struct, so tha
 Once you have defined the inputs and outputs for your vertex shader, you can define your programmable 
 shader by having it implement the `Shader` trait:
 
-```
+```rust
 struct MyShader;
 impl Shader<Vertex, VertexOut> for MyShader {
     fn vertex(&self, vertex: &Vertex) -> (glam::Vec4, VertexOut) {
@@ -66,7 +66,7 @@ the output is a set of RGB color values from 0-255.
 
 All that is left to do is provide the renderer with the required information to execute a single draw call:
 
-```
+```rust
 let color_buf = renderer.draw(&mut shader, &vertices, &indices);
 ```
 Providing a set of indices is currently a requirement, even if you do not re-use vertex data. This may change in the future. The `draw` function returns the color buffer, and you can now present the rendered frame however you'd like by accessing the raw array of pixel values. The provided examples use the `softbuffer` and `winit` crates to render to a window without requiring GPU acceleration.
